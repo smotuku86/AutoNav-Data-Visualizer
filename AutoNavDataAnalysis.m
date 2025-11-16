@@ -1,7 +1,11 @@
 %% AutoNav Data Analysis 
 clear;clc;close all;
 
-addpath(genpath('C:\Users\sreew\OneDrive\AutoNavWork\HelperFunctions'));
+basePath = fileparts(mfilename('fullpath')); %filepath of this file on user's device
+helperPath = fullfile(basePath, 'HelperFunctions');   % Helper Functions
+dataPath = fullfile(basePath, 'TestingData');         % Path for Data
+addpath(genpath(helperPath));
+addpath(genpath(dataPath));
 
 % Load the dataset for analysis
 %data = parse_log('GPSTestingLog.txt');
