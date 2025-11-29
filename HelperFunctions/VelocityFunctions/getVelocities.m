@@ -11,8 +11,8 @@ function [odom_vel, imu_vel, enc_vel] = getVelocities(data)
     end
 
     % --- Compute IMU Velocity ---
-    if isfield(data, 'imu')
-        imu_vel = computeImuVelocity(data.imu);
+    if isfield(data, 'zed_zed_node_imu_data')
+        imu_vel = computeImuVelocity(data.zed_zed_node_imu_data);
     else
         warning('No IMU data found.');
     end
@@ -44,7 +44,7 @@ end
 
 %% ================================================================
 function imu_vel = computeImuVelocity(imu)
-    required = {'time', 'x_accel', 'y_accel'};
+    required = {'time', 'accel_x', 'accel_y'};
     if ~all(isfield(imu, required))
         warning('IMU data missing one or more required fields.');
         imu_vel = struct();
@@ -54,8 +54,8 @@ function imu_vel = computeImuVelocity(imu)
     t = imu.time;
     dt = diff(t);
 
-    ax = imu.x_accel(:);
-    ay = imu.y_accel(:);
+    ax = imu.accel_x(:);
+    ay = imu.accel_y(:);
 
     imu_vel.x = zeros(length(ax),1);
     imu_vel.y = zeros(length(ay),1);
@@ -71,8 +71,8 @@ end
 
 %% ================================================================
 function enc_vel = computeEncoderVelocity(encoders)
-    load('BowserVehicleParams.mat', 'EncoderCount2Rev')
-    
+    load('BowserVehicleParams.mat', 'EncoderCount2Rev', 'WheelRadius')
+
     if ~isfield(encoders, 'time') || ...
        ~isfield(encoders, 'encoder_left') || ...
        ~isfield(encoders, 'encoder_right')
@@ -83,8 +83,10 @@ function enc_vel = computeEncoderVelocity(encoders)
 
     t = encoders.time;
     dt = diff(t);
+    ConversionFactor = (EncoderCount2Rev)^(-1) * WheelRadius; 
+    %    ^ from encoder count/s to m/s
 
-    enc_vel.left  = diff(encoders.encoder_left) ./ dt;
-    enc_vel.right = diff(encoders.encoder_right) ./ dt;
+    enc_vel.left  = diff(encoders.encoder_left) ./ dt * ConversionFactor;
+    enc_vel.right = diff(encoders.encoder_right) ./ dt * ConversionFactor;
     enc_vel.time  = t(2:end);
 end

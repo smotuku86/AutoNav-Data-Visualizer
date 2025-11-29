@@ -80,10 +80,11 @@ classdef TestingGUI < handle
 
             % --- Populate Additional Graphs Panel dynamically ---
             eligibleExtras = {};
-            if isfield(app.LogData, 'encoders') ...
+            if ( isfield(app.LogData, 'encoders') ...
             || isfield(app.LogData, 'odom') ...
-            || isfield(app.LogData, 'imu')
-                eligibleExtras{end+1} = 'Derived_Velocities';
+            || isfield(app.LogData, 'imu') )
+                eligibleExtras{end+1} = 'Raw_Derived_Velocities';
+                eligibleExtras{end+1} = 'Filtered_Derived_Velocities';
             end
 
             panelY = app.AdditionalGraphsPanel.Position(4) - 30;
@@ -116,7 +117,7 @@ classdef TestingGUI < handle
                     switch topic
                         case 'gps_fix', plotGPS(data);
                         case 'odom', plot_odom(data);
-                        case 'imu', plot_imu(data);
+                        case 'zed_zed_node_imu_data', plot_imu(data);
                         case 'cmd_vel', plot_cmd_vel(data);
                         case 'encoders', plot_encoder_count(data);
                         otherwise
@@ -133,9 +134,13 @@ classdef TestingGUI < handle
                 if cb.Value
                     % Call the function for this extra graph
                     switch name
-                        case 'Derived_Velocities'
+                        case 'Raw_Derived_Velocities'
                              [odom_vel, imu_vel, enc_vel] = getVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
+                        case 'Filtered_Derived_Velocities'
+                             [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(app.LogData);
+                             plotVelocities(odom_vel, imu_vel, enc_vel);
+                             title("Filtered")
                         otherwise
                             fprintf('No function for extra graph: %s\n', name);
                     end
