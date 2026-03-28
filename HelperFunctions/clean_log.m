@@ -6,12 +6,16 @@ function data = clean_log(data)
 %here it is set to zero based on initial position
 
 % Offset odometry data to start from zero
-data.odom.pos_x = data.odom.pos_x(:) - data.odom.pos_x(1);
-data.odom.pos_y = data.odom.pos_y(:) - data.odom.pos_y(1);
-data.odom.orient_z =data.odom.orient_z(:) - data.odom.orient_z(1);
+if isfield(data, 'odom')
+    data.odom.pos_x = data.odom.pos_x(:) - data.odom.pos_x(1);
+    data.odom.pos_y = data.odom.pos_y(:) - data.odom.pos_y(1);
+    data.odom.orient_z = data.odom.orient_z(:) - data.odom.orient_z(1);
+end
 
 % Offset Encoder data to start from zero
-data.encoders.encoder_left = data.encoders.encoder_left(:) - data.encoders.encoder_left(1);
-data.encoders.encoder_right = data.encoders.encoder_right(:) - data.encoders.encoder_right(1);
+if isfield(data, 'encoders')
+    data.encoders.encoder_left = data.encoders.encoder_left(:) - data.encoders.encoder_left(1);
+    data.encoders.encoder_right = data.encoders.encoder_right(:) - data.encoders.encoder_right(1);
+end
 
 end

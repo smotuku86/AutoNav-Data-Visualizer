@@ -87,6 +87,12 @@ classdef TestingGUI < handle
                 eligibleExtras{end+1} = 'Filtered_Derived_Velocities';
             end
 
+            if isfield(app.LogData, 'electrical_voltage') ...
+            || isfield(app.LogData, 'electrical_current') ...
+            || isfield(app.LogData, 'electrical_power')
+                eligibleExtras{end+1} = 'Electrical_Data';
+            end
+
             panelY = app.AdditionalGraphsPanel.Position(4) - 30;
             for i = 1:numel(eligibleExtras)
                 name = eligibleExtras{i};
@@ -120,6 +126,9 @@ classdef TestingGUI < handle
                         case 'zed_zed_node_imu_data', plot_imu(data);
                         case 'cmd_vel', plot_cmd_vel(data);
                         case 'encoders', plot_encoder_count(data);
+                        case 'electrical_voltage', plot_electrical(data, [], []);
+                        case 'electrical_current', plot_electrical([], data, []);
+                        case 'electrical_power',   plot_electrical([], [], data);
                         otherwise
                             fprintf('No plot function for topic: %s\n', topic);
                     end
@@ -141,6 +150,18 @@ classdef TestingGUI < handle
                              [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
                              title("Filtered")
+                        case 'Electrical_Data'
+                             v = []; c = []; p = [];
+                             if isfield(app.LogData, 'electrical_voltage')
+                                 v = app.LogData.electrical_voltage;
+                             end
+                             if isfield(app.LogData, 'electrical_current')
+                                 c = app.LogData.electrical_current;
+                             end
+                             if isfield(app.LogData, 'electrical_power')
+                                 p = app.LogData.electrical_power;
+                             end
+                             plot_electrical(v, c, p);
                         otherwise
                             fprintf('No function for extra graph: %s\n', name);
                     end
