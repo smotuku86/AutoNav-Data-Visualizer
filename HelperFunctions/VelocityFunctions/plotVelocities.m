@@ -59,18 +59,29 @@ function plotVelocities(odom_vel, imu_vel, enc_vel)
     cbPanel = uipanel('Title','Toggle Lines','FontSize',10, ...
                       'Position',[0.91 0.05 0.08 0.9]);
 
+    % Lines shown by default
+    defaultOn = {'odomX', 'odomY', 'odomMag'};
+
     fields = fieldnames(h);
     n = numel(fields);
 
     for k = 1:n
+        isOn = ismember(fields{k}, defaultOn);
+        if ~isOn
+            h.(fields{k}).Visible = 'off';
+        end
         uicontrol('Parent', cbPanel, ...
                   'Style', 'checkbox', ...
                   'String', fields{k}, ...
-                  'Value', 1, ...
+                  'Value', isOn, ...
                   'Units','normalized', ...
                   'Position',[0.05 1 - k*0.06 0.9 0.05], ...
                   'Callback', @(src,~) toggleLine(h.(fields{k}), src.Value));
     end
+
+    % Rescale axes to visible lines only
+    autoscaleAxes(ax1);
+    autoscaleAxes(ax2);
 
 
     % ============================================

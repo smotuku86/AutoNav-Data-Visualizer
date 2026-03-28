@@ -12,6 +12,10 @@ classdef TestingGUI < handle
 
     methods
         function app = TestingGUI
+            % Add HelperFunctions to the path so parse_log, plot_*, etc. are found
+            projRoot = fileparts(fileparts(mfilename('fullpath')));
+            addpath(projRoot);
+            addpath(genpath(fullfile(projRoot, 'HelperFunctions')));
             createComponents(app);
         end
 
@@ -48,17 +52,22 @@ classdef TestingGUI < handle
         % Load Log Button
         % ==========================================================
         function LoadLogButtonPushed(app)
-            [file, path] = uigetfile('*.csv;*.txt;*.log', 'Select Log File');
+            projRoot = fileparts(fileparts(mfilename('fullpath')));
+            startDir = fullfile(projRoot, 'TestingData');
+            [file, path] = uigetfile(fullfile(startDir, '*.csv;*.txt;*.log'), 'Select Log File');
             if isequal(file,0), return; end
             fullpath = fullfile(path, file);
 
             try
-                app.LogData = parse_log(fullpath); 
+                app.LogData = parse_log(fullpath);
                 app.LogData = clean_log(app.LogData);
             catch ME
                 uialert(app.UIFigure, sprintf("Error parsing log:\n%s", ME.message), 'Parse Error');
                 return;
             end
+
+            % Bring GUI window back to front after file dialog
+            figure(app.UIFigure);
 
             % --- Clear previous checkboxes ---
             delete(app.TopicsPanel.Children);
@@ -126,13 +135,42 @@ classdef TestingGUI < handle
                         case 'zed_zed_node_imu_data', plot_imu(data);
                         case 'cmd_vel', plot_cmd_vel(data);
                         case 'encoders', plot_encoder_count(data);
-                        case 'electrical_voltage', plot_electrical(data, [], []);
-                        case 'electrical_current', plot_electrical([], data, []);
-                        case 'electrical_power',   plot_electrical([], [], data);
+                        case {'electrical_voltage', 'electrical_current', 'electrical_power'}
+                            % Handled below as a group
                         otherwise
                             fprintf('No plot function for topic: %s\n', topic);
                     end
                 end
+            end
+
+            % --- Plot electrical topics as one combined figure ---
+            elecTopics = {'electrical_voltage','electrical_current','electrical_power'};
+            anyElecChecked = false;
+            for i = 1:numel(elecTopics)
+                if isfield(app.TopicCheckboxes, elecTopics{i}) ...
+                && app.TopicCheckboxes.(elecTopics{i}).Value
+                    anyElecChecked = true;
+                    break;
+                end
+            end
+            if anyElecChecked
+                v = []; c = []; p = [];
+                if isfield(app.LogData, 'electrical_voltage') ...
+                && isfield(app.TopicCheckboxes, 'electrical_voltage') ...
+                && app.TopicCheckboxes.electrical_voltage.Value
+                    v = app.LogData.electrical_voltage;
+                end
+                if isfield(app.LogData, 'electrical_current') ...
+                && isfield(app.TopicCheckboxes, 'electrical_current') ...
+                && app.TopicCheckboxes.electrical_current.Value
+                    c = app.LogData.electrical_current;
+                end
+                if isfield(app.LogData, 'electrical_power') ...
+                && isfield(app.TopicCheckboxes, 'electrical_power') ...
+                && app.TopicCheckboxes.electrical_power.Value
+                    p = app.LogData.electrical_power;
+                end
+                plot_electrical(v, c, p);
             end
 
             % --- Plot selected additional graphs ---
@@ -147,9 +185,20 @@ classdef TestingGUI < handle
                              [odom_vel, imu_vel, enc_vel] = getVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
                         case 'Filtered_Derived_Velocities'
+                             % Get raw velocities to capture y-limits
+                             [raw_odom, raw_imu, raw_enc] = getVelocities(app.LogData);
+                             plotVelocities(raw_odom, raw_imu, raw_enc);
+                             rawFig = gcf;
+                             rawAx1 = subplot(2,1,1); yl1 = ylim(rawAx1);
+                             rawAx2 = subplot(2,1,2); yl2 = ylim(rawAx2);
+                             close(rawFig);
+
+                             % Plot filtered velocities with same y-limits
                              [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
-                             title("Filtered")
+                             set(gcf, 'Name', 'Filtered Velocities');
+                             subplot(2,1,1); title('Velocity Components Filtered'); ylim(yl1);
+                             subplot(2,1,2); title('Velocity Filtered'); ylim(yl2);
                         case 'Electrical_Data'
                              v = []; c = []; p = [];
                              if isfield(app.LogData, 'electrical_voltage')

@@ -1,3 +1,4 @@
+
 classdef TestingGUI < handle
     properties
         UIFigure
@@ -12,6 +13,10 @@ classdef TestingGUI < handle
 
     methods
         function app = TestingGUI
+            % Add HelperFunctions to the path so parse_log, plot_*, etc. are found
+            projRoot = fileparts(fileparts(mfilename('fullpath')));
+            addpath(projRoot);
+            addpath(genpath(fullfile(projRoot, 'HelperFunctions')));
             createComponents(app);
         end
 
@@ -48,7 +53,9 @@ classdef TestingGUI < handle
         % Load Log Button
         % ==========================================================
         function LoadLogButtonPushed(app)
-            [file, path] = uigetfile('*.csv;*.txt;*.log', 'Select Log File');
+            projRoot = fileparts(fileparts(mfilename('fullpath')));
+            startDir = fullfile(projRoot, 'TestingData');
+            [file, path] = uigetfile(fullfile(startDir, '*.csv;*.txt;*.log'), 'Select Log File');
             if isequal(file,0), return; end
             fullpath = fullfile(path, file);
 
@@ -80,9 +87,17 @@ classdef TestingGUI < handle
 
             % --- Populate Additional Graphs Panel dynamically ---
             eligibleExtras = {};
-            if isfield(app.LogData, 'encoders') || isfield(app.LogData, 'odom') ...
-                    || isfield(app.LogData, 'imu')
-                eligibleExtras{end+1} = 'Derivied Velocity';
+            if ( isfield(app.LogData, 'encoders') ...
+            || isfield(app.LogData, 'odom') ...
+            || isfield(app.LogData, 'imu') )
+                eligibleExtras{end+1} = 'Raw_Derived_Velocities';
+                eligibleExtras{end+1} = 'Filtered_Derived_Velocities';
+            end
+
+            if isfield(app.LogData, 'electrical_voltage') ...
+            || isfield(app.LogData, 'electrical_current') ...
+            || isfield(app.LogData, 'electrical_power')
+                eligibleExtras{end+1} = 'Electrical_Data';
             end
 
             panelY = app.AdditionalGraphsPanel.Position(4) - 30;
@@ -115,13 +130,45 @@ classdef TestingGUI < handle
                     switch topic
                         case 'gps_fix', plotGPS(data);
                         case 'odom', plot_odom(data);
-                        case 'imu', plot_imu(data);
+                        case 'zed_zed_node_imu_data', plot_imu(data);
                         case 'cmd_vel', plot_cmd_vel(data);
                         case 'encoders', plot_encoder_count(data);
+                        case {'electrical_voltage', 'electrical_current', 'electrical_power'}
+                            % Handled below as a group
                         otherwise
                             fprintf('No plot function for topic: %s\n', topic);
                     end
                 end
+            end
+
+            % --- Plot electrical topics as one combined figure ---
+            elecTopics = {'electrical_voltage','electrical_current','electrical_power'};
+            anyElecChecked = false;
+            for i = 1:numel(elecTopics)
+                if isfield(app.TopicCheckboxes, elecTopics{i}) ...
+                && app.TopicCheckboxes.(elecTopics{i}).Value
+                    anyElecChecked = true;
+                    break;
+                end
+            end
+            if anyElecChecked
+                v = []; c = []; p = [];
+                if isfield(app.LogData, 'electrical_voltage') ...
+                && isfield(app.TopicCheckboxes, 'electrical_voltage') ...
+                && app.TopicCheckboxes.electrical_voltage.Value
+                    v = app.LogData.electrical_voltage;
+                end
+                if isfield(app.LogData, 'electrical_current') ...
+                && isfield(app.TopicCheckboxes, 'electrical_current') ...
+                && app.TopicCheckboxes.electrical_current.Value
+                    c = app.LogData.electrical_current;
+                end
+                if isfield(app.LogData, 'electrical_power') ...
+                && isfield(app.TopicCheckboxes, 'electrical_power') ...
+                && app.TopicCheckboxes.electrical_power.Value
+                    p = app.LogData.electrical_power;
+                end
+                plot_electrical(v, c, p);
             end
 
             % --- Plot selected additional graphs ---
@@ -132,12 +179,36 @@ classdef TestingGUI < handle
                 if cb.Value
                     % Call the function for this extra graph
                     switch name
-                        case 'Derived Velocities'
-                             [odom_vel, imu_vel, enc_vel] = getVelocities(data);
+                        case 'Raw_Derived_Velocities'
+                             [odom_vel, imu_vel, enc_vel] = getVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
-                            plot_velocity_heatmap(app.LogData);
-                        case 'Custom GPS Overlay', plot_custom_gps(app.LogData);
-                        case 'IMU Orientation', plot_imu_orientation(app.LogData);
+                        case 'Filtered_Derived_Velocities'
+                             % Get raw velocities to capture y-limits
+                             [raw_odom, raw_imu, raw_enc] = getVelocities(app.LogData);
+                             plotVelocities(raw_odom, raw_imu, raw_enc);
+                             rawFig = gcf;
+                             rawAx1 = subplot(2,1,1); yl1 = ylim(rawAx1);
+                             rawAx2 = subplot(2,1,2); yl2 = ylim(rawAx2);
+                             close(rawFig);
+
+                             % Plot filtered velocities with same y-limits
+                             [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(app.LogData);
+                             plotVelocities(odom_vel, imu_vel, enc_vel);
+                             set(gcf, 'Name', 'Filtered Velocities');
+                             subplot(2,1,1); title('Velocity Components Filtered'); ylim(yl1);
+                             subplot(2,1,2); title('Velocity Filtered'); ylim(yl2);
+                        case 'Electrical_Data'
+                             v = []; c = []; p = [];
+                             if isfield(app.LogData, 'electrical_voltage')
+                                 v = app.LogData.electrical_voltage;
+                             end
+                             if isfield(app.LogData, 'electrical_current')
+                                 c = app.LogData.electrical_current;
+                             end
+                             if isfield(app.LogData, 'electrical_power')
+                                 p = app.LogData.electrical_power;
+                             end
+                             plot_electrical(v, c, p);
                         otherwise
                             fprintf('No function for extra graph: %s\n', name);
                     end

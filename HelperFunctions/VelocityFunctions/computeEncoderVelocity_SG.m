@@ -19,8 +19,9 @@ function enc_vel = computeEncoderVelocity_SG(encoders)
     [~, g] = sgolay(order, window);
 
     % Encoder counts → SG derivative → velocity
-    left_vel  = conv(encoders.encoder_left,  g(:,2), 'same')  / dt * ConversionFactor;
-    right_vel = conv(encoders.encoder_right, g(:,2), 'same')  / dt * ConversionFactor;
+    % conv() flips the kernel, so negate g(:,2) to get correct sign
+    left_vel  = conv(encoders.encoder_left,  -g(:,2), 'same')  / dt * ConversionFactor;
+    right_vel = conv(encoders.encoder_right, -g(:,2), 'same')  / dt * ConversionFactor;
 
     enc_vel.left  = left_vel;
     enc_vel.right = right_vel;

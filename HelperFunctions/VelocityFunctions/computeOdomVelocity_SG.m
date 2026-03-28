@@ -9,8 +9,9 @@ function odom_vel = computeOdomVelocity_SG(odom)
     [~, g] = sgolay(order, window);
 
     % --- Smooth pos and take SG derivative for velocity ---
-    vx = conv(odom.pos_x, g(:,2), 'same') / dt;
-    vy = conv(odom.pos_y, g(:,2), 'same') / dt;
+    % conv() flips the kernel, so negate g(:,2) to get correct sign
+    vx = conv(odom.pos_x, -g(:,2), 'same') / dt;
+    vy = conv(odom.pos_y, -g(:,2), 'same') / dt;
 
     odom_vel.x    = vx;
     odom_vel.y    = vy;

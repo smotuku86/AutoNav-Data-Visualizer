@@ -16,7 +16,7 @@ function plot_electrical(voltage_data, current_data, power_data)
     % --- Voltage subplot ---
     subplot(3,1,1);
     if ~isempty(voltage_data) && isstruct(voltage_data) && isfield(voltage_data, 'time')
-        plot(voltage_data.time, voltage_data.voltage, 'b-', 'LineWidth', 1.5);
+        plot(voltage_data.time, voltage_data.voltage_V, 'b-', 'LineWidth', 1.5);
         ylabel('Voltage (V)');
     else
         text(0.5, 0.5, 'No voltage data', 'HorizontalAlignment', 'center');
@@ -28,7 +28,7 @@ function plot_electrical(voltage_data, current_data, power_data)
     % --- Current subplot ---
     subplot(3,1,2);
     if ~isempty(current_data) && isstruct(current_data) && isfield(current_data, 'time')
-        plot(current_data.time, current_data.current, 'r-', 'LineWidth', 1.5);
+        plot(current_data.time, current_data.current_A, 'r-', 'LineWidth', 1.5);
         ylabel('Current (A)');
     else
         text(0.5, 0.5, 'No current data', 'HorizontalAlignment', 'center');
@@ -40,7 +40,7 @@ function plot_electrical(voltage_data, current_data, power_data)
     % --- Power subplot ---
     subplot(3,1,3);
     if ~isempty(power_data) && isstruct(power_data) && isfield(power_data, 'time')
-        plot(power_data.time, power_data.power, 'g-', 'LineWidth', 1.5);
+        plot(power_data.time, power_data.power_W, 'g-', 'LineWidth', 1.5);
         ylabel('Power (W)');
     else
         text(0.5, 0.5, 'No power data', 'HorizontalAlignment', 'center');
