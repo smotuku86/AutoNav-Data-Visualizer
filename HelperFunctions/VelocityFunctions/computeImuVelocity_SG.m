@@ -14,7 +14,7 @@ function imu_vel = computeImuVelocity_SG(imu)
 
     % SG smooth the accelerations
     order  = 3;
-    window = 21;
+    window = 11;
     ax_f = sgolayfilt(ax, order, window);
     ay_f = sgolayfilt(ay, order, window);
 

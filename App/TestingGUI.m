@@ -1,3 +1,4 @@
+
 classdef TestingGUI < handle
     properties
         UIFigure
@@ -59,15 +60,12 @@ classdef TestingGUI < handle
             fullpath = fullfile(path, file);
 
             try
-                app.LogData = parse_log(fullpath);
+                app.LogData = parse_log(fullpath); 
                 app.LogData = clean_log(app.LogData);
             catch ME
                 uialert(app.UIFigure, sprintf("Error parsing log:\n%s", ME.message), 'Parse Error');
                 return;
             end
-
-            % Bring GUI window back to front after file dialog
-            figure(app.UIFigure);
 
             % --- Clear previous checkboxes ---
             delete(app.TopicsPanel.Children);
@@ -185,20 +183,20 @@ classdef TestingGUI < handle
                              [odom_vel, imu_vel, enc_vel] = getVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
                         case 'Filtered_Derived_Velocities'
-                             % Get raw velocities to capture y-limits
+                             % Get raw velocities to capture axis limits
                              [raw_odom, raw_imu, raw_enc] = getVelocities(app.LogData);
                              plotVelocities(raw_odom, raw_imu, raw_enc);
                              rawFig = gcf;
-                             rawAx1 = subplot(2,1,1); yl1 = ylim(rawAx1);
-                             rawAx2 = subplot(2,1,2); yl2 = ylim(rawAx2);
+                             rawAx1 = subplot(2,1,1); xl1 = xlim(rawAx1); yl1 = ylim(rawAx1);
+                             rawAx2 = subplot(2,1,2); xl2 = xlim(rawAx2); yl2 = ylim(rawAx2);
                              close(rawFig);
 
-                             % Plot filtered velocities with same y-limits
+                             % Plot filtered velocities with same axis limits
                              [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(app.LogData);
                              plotVelocities(odom_vel, imu_vel, enc_vel);
                              set(gcf, 'Name', 'Filtered Velocities');
-                             subplot(2,1,1); title('Velocity Components Filtered'); ylim(yl1);
-                             subplot(2,1,2); title('Velocity Filtered'); ylim(yl2);
+                             subplot(2,1,1); title('Velocity Components Filtered'); xlim(xl1); ylim(yl1);
+                             subplot(2,1,2); title('Velocity Filtered'); xlim(xl2); ylim(yl2);
                         case 'Electrical_Data'
                              v = []; c = []; p = [];
                              if isfield(app.LogData, 'electrical_voltage')

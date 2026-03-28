@@ -15,7 +15,7 @@ function enc_vel = computeEncoderVelocity_SG(encoders)
     ConversionFactor = (EncoderCount2Rev)^(-1) * WheelRadius;
 
     order  = 3;
-    window = 21;
+    window = 11;
     [~, g] = sgolay(order, window);
 
     % Encoder counts → SG derivative → velocity

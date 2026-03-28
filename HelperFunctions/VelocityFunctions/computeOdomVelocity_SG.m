@@ -4,7 +4,7 @@ function odom_vel = computeOdomVelocity_SG(odom)
 
     % SG window & order (tunable)
     order  = 3;
-    window = 21; % MUST be odd
+    window = 11; % MUST be odd
 
     [~, g] = sgolay(order, window);
 

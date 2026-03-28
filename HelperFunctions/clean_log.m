@@ -5,8 +5,17 @@ function data = clean_log(data)
 %it starts at a random number and increases/decreases
 %here it is set to zero based on initial position
 
-% Offset odometry data to start from zero
+% Remove duplicate consecutive odom rows (logger captures same reading twice)
 if isfield(data, 'odom')
+    keep = [true; diff(data.odom.pos_x(:)) ~= 0 ...
+                | diff(data.odom.pos_y(:)) ~= 0 ...
+                | diff(data.odom.orient_z(:)) ~= 0];
+    fields = fieldnames(data.odom);
+    for k = 1:numel(fields)
+        data.odom.(fields{k}) = data.odom.(fields{k})(keep);
+    end
+
+    % Offset odometry data to start from zero
     data.odom.pos_x = data.odom.pos_x(:) - data.odom.pos_x(1);
     data.odom.pos_y = data.odom.pos_y(:) - data.odom.pos_y(1);
     data.odom.orient_z = data.odom.orient_z(:) - data.odom.orient_z(1);
