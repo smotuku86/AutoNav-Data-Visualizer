@@ -133,6 +133,7 @@ classdef TestingGUI < handle
                         case 'zed_zed_node_imu_data', plot_imu(data);
                         case 'cmd_vel', plot_cmd_vel(data);
                         case 'encoders', plot_encoder_count(data);
+                        case 'motor_speed', plot_motor_speed(data);
                         case {'electrical_voltage', 'electrical_current', 'electrical_power'}
                             % Handled below as a group
                         otherwise
