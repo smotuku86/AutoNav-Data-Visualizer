@@ -94,6 +94,11 @@ classdef TestingGUI < handle
                 eligibleExtras{end+1} = 'Filtered_Derived_Velocities';
             end
 
+            if isfield(app.LogData, 'motor_speed') ...
+            && isfield(app.LogData, 'odom')
+                eligibleExtras{end+1} = 'Motor_Speed_vs_Velocity';
+            end
+
             if isfield(app.LogData, 'electrical_voltage') ...
             || isfield(app.LogData, 'electrical_current') ...
             || isfield(app.LogData, 'electrical_power')
@@ -198,6 +203,8 @@ classdef TestingGUI < handle
                              set(gcf, 'Name', 'Filtered Velocities');
                              subplot(2,1,1); title('Velocity Components Filtered'); xlim(xl1); ylim(yl1);
                              subplot(2,1,2); title('Velocity Filtered'); xlim(xl2); ylim(yl2);
+                        case 'Motor_Speed_vs_Velocity'
+                             plot_motor_speed_vs_velocity(app.LogData.motor_speed, app.LogData.odom);
                         case 'Electrical_Data'
                              v = []; c = []; p = [];
                              if isfield(app.LogData, 'electrical_voltage')
