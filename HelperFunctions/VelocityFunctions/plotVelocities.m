@@ -24,8 +24,8 @@ function plotVelocities(odom_vel, imu_vel, enc_vel)
     end
 
     grid on;
-    xlabel('Time (s)');
-    ylabel('Velocity');
+    xlabel('Time [s]');
+    ylabel('Velocity [m/s]');
     title('Velocity Components');
     legend('show');
 
@@ -47,8 +47,8 @@ function plotVelocities(odom_vel, imu_vel, enc_vel)
     end
 
     grid on;
-    xlabel('Time (s)');
-    ylabel('Velocity Magnitude');
+    xlabel('Time [s]');
+    ylabel('Velocity Magnitude [m/s]');
     title('Velocity Magnitude');
     legend('show');
 

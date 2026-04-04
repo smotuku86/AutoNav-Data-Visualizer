@@ -20,7 +20,7 @@ function plot_imu(imu_data)
     h.ax = plot(t, imu_data.accel_x, 'r', 'DisplayName','X Accel');
     h.ay = plot(t, imu_data.accel_y, 'g', 'DisplayName','Y Accel');
     h.az = plot(t, imu_data.accel_z, 'b', 'DisplayName','Z Accel');
-    ylabel('Accel (m/s^2)');
+    ylabel('Accel [m/s^2]');
     title('Accelerometer');
     grid on;
     legend('show');
@@ -30,7 +30,7 @@ function plot_imu(imu_data)
     h.gx = plot(t, imu_data.gyro_x, 'r', 'DisplayName','X Gyro');
     h.gy = plot(t, imu_data.gyro_y, 'g', 'DisplayName','Y Gyro');
     h.gz = plot(t, imu_data.gyro_z, 'b', 'DisplayName','Z Gyro');
-    ylabel('Gyro (rad/s)');
+    ylabel('Gyro [rad/s]');
     title('Gyroscope');
     grid on;
     legend('show');
@@ -40,8 +40,8 @@ function plot_imu(imu_data)
     h.ox = plot(t, imu_data.orient_x, 'r', 'DisplayName','X Orientation');
     h.oy = plot(t, imu_data.orient_y, 'g', 'DisplayName','Y Orientation');
     h.oz = plot(t, imu_data.orient_z, 'b', 'DisplayName','Z Orientation');
-    ylabel('Orientation (rad)');
-    xlabel('Time');
+    ylabel('Orientation [rad]');
+    xlabel('Time [s]');
     title('Orientation');
     grid on;
     legend('show');

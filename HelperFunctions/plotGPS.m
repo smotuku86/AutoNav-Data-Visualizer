@@ -60,7 +60,7 @@ function [] = plotGPS(GPS_data)
 
     % Add colorbar
     cb = colorbar;
-    ylabel(cb, 'Altitude (m)');
+    ylabel(cb, 'Altitude [m]');
 
     title(gx, 'GPS Points Colored by Altitude');
 

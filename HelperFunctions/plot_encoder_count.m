@@ -31,8 +31,8 @@ function plot_encoder_count(encoders)
     plot(time, right_encoder_reading, 'r-', 'LineWidth', 1.5);
     
     % --- Format plot ---
-    xlabel('Time (seconds)');
-    ylabel('Encoder Count');
+    xlabel('Time [s]');
+    ylabel('Encoder Count [-]');
     title('Encoder Counts Over Time');
     legend({'Left Encoder', 'Right Encoder'});
     grid on;

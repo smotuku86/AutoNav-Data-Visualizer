@@ -23,8 +23,8 @@ function plot_odom(odom)
     % --- Plot path ---
     figure('Name','Odometry Path','Color','w');
     plot(x, y, 'b-', 'LineWidth', 1.5); hold on;
-    xlabel('X Position (m)');
-    ylabel('Y Position (m)');
+    xlabel('X Position [m]');
+    ylabel('Y Position [m]');
     title('Robot Path from Odometry');
     grid on;
     axis equal;

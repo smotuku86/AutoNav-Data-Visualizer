@@ -22,15 +22,15 @@ function plot_cmd_vel(cmd_vel)
     % Top: linear_x
     subplot(2,1,1);
     plot(t, x, 'b-', 'LineWidth', 1.5);
-    ylabel('Linear X (m/s)');
+    ylabel('Linear X [m/s]');
     title('Command Velocities');
     grid on;
 
     % Bottom: angular_z
     subplot(2,1,2);
     plot(t, z, 'r-', 'LineWidth', 1.5);
-    xlabel('Time');
-    ylabel('Z Angular (rad/s)');
+    xlabel('Time [s]');
+    ylabel('Z Angular [rad/s]');
     grid on;
 
 end

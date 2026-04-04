@@ -22,8 +22,8 @@ function plot_motor_speed(motor_speed)
     % --- Plot ---
     figure('Name','Motor Command Speed','Color','w');
     plot(t, speed, 'b-', 'LineWidth', 1.5);
-    xlabel('Time (seconds)');
-    ylabel('Motor Command Speed');
+    xlabel('Time [s]');
+    ylabel('Motor Command Speed [-]');
     title('Motor Command Speed');
     grid on;
 
