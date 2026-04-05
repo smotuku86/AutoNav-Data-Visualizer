@@ -15,10 +15,14 @@ if isfield(data, 'odom')
         data.odom.(fields{k}) = data.odom.(fields{k})(keep);
     end
 
-    % Offset odometry data to start from zero
+    % Convert orient_z from quaternion z component to yaw angle (radians)
+    % Assumes planar motion (q.x = q.y = 0), so yaw = 2*asin(q.z)
+    qz = max(-1, min(1, data.odom.orient_z(:)));
+    data.odom.orient_z = 2 * asin(qz);
+
+    % Offset position to start from zero (heading is kept absolute)
     data.odom.pos_x = data.odom.pos_x(:) - data.odom.pos_x(1);
     data.odom.pos_y = data.odom.pos_y(:) - data.odom.pos_y(1);
-    data.odom.orient_z = data.odom.orient_z(:) - data.odom.orient_z(1);
 end
 
 % Offset Encoder data to start from zero

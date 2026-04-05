@@ -5,7 +5,7 @@ function plot_odom(odom)
 %   where odom is a struct with fields:
 %       odom.pos_x
 %       odom.pos_y
-%       odom.orient_z   (in radians)
+%       odom.orient_z   (yaw in radians, converted by clean_log)
 %
 %   Example:
 %       data = parse_log('ExampleBrowserLog.txt');
@@ -37,7 +37,7 @@ function plot_odom(odom)
     for i = 1:step:numel(x)
         dx = arrow_scale * cos(theta(i));
         dy = arrow_scale * sin(theta(i));
-        quiver(x(i), y(i), dx, dy, 0, 'r', 'LineWidth', .5, 'MaxHeadSize', 2);
+        quiver(x(i), y(i), dx, dy, 0, 'r', 'LineWidth', 2, 'MaxHeadSize', 2);
     end
 
     legend({'Path', 'Orientation'});
