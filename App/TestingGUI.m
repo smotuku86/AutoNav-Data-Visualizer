@@ -105,6 +105,11 @@ classdef TestingGUI < handle
                 eligibleExtras{end+1} = 'Electrical_Data';
             end
 
+            if isfield(app.LogData, 'motor_speed') ...
+            && isfield(app.LogData, 'electrical_power')
+                eligibleExtras{end+1} = 'Motor_Speed_vs_Power';
+            end
+
             panelY = app.AdditionalGraphsPanel.Position(4) - 30;
             for i = 1:numel(eligibleExtras)
                 name = eligibleExtras{i};
@@ -217,6 +222,10 @@ classdef TestingGUI < handle
                                  p = app.LogData.electrical_power;
                              end
                              plot_electrical(v, c, p);
+                        case 'Motor_Speed_vs_Power'
+                             plot_motor_speed_vs_power( ...
+                                 app.LogData.motor_speed, ...
+                                 app.LogData.electrical_power);
                         otherwise
                             fprintf('No function for extra graph: %s\n', name);
                     end
