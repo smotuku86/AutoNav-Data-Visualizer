@@ -24,6 +24,7 @@ classdef DataVisualizer < handle
         ShowUnits = true
         ShowLabels = true
         PlotFigure = []     % handle to the plot figure window
+        WarningBar         % optional warning banner label
     end
 
     methods
@@ -100,9 +101,23 @@ classdef DataVisualizer < handle
             htmlDir = fullfile(fileparts(mfilename('fullpath')), 'html');
             htmlFile = fullfile(htmlDir, 'dragdrop.html');
 
+            % --- Warning bar (shown if Signal Processing Toolbox is missing) ---
+            bannerH = 0;
+            if ~license('test', 'Signal_Toolbox')
+                bannerH = 26;
+                app.WarningBar = uilabel(app.UIFigure, ...
+                    'Text', ['  \x26A0 Signal Processing Toolbox not installed — ' ...
+                             'filtered velocity will be unavailable.  ' ...
+                             'Install via Home > Add-Ons > Get Add-Ons.'], ...
+                    'Position', [0 figH-50-bannerH figW bannerH], ...
+                    'BackgroundColor', [1 0.93 0.6], ...
+                    'FontSize', 12, ...
+                    'FontColor', [0.4 0.3 0]);
+            end
+
             app.HTMLComponent = uihtml(app.UIFigure, ...
                 'HTMLSource', htmlFile, ...
-                'Position', [0 0 figW figH-50], ...
+                'Position', [0 0 figW figH-50-bannerH], ...
                 'DataChangedFcn', @(~,~) onHTMLDataChanged(app));
         end
 
@@ -114,7 +129,13 @@ classdef DataVisualizer < handle
             figW = app.UIFigure.Position(3);
             figH = app.UIFigure.Position(4);
             app.ToolbarPanel.Position = [0 figH-50 figW 50];
-            app.HTMLComponent.Position = [0 0 figW figH-50];
+
+            bannerH = 0;
+            if ~isempty(app.WarningBar) && isvalid(app.WarningBar)
+                bannerH = 26;
+                app.WarningBar.Position = [0 figH-50-bannerH figW bannerH];
+            end
+            app.HTMLComponent.Position = [0 0 figW figH-50-bannerH];
         end
 
         % ==============================================================
@@ -150,11 +171,18 @@ classdef DataVisualizer < handle
                 app.LogData.odom_velocity.vy   = raw.y;
                 app.LogData.odom_velocity.mag  = raw.mag;
 
-                filt = computeOdomVelocity_SG(app.LogData.odom);
-                app.LogData.odom_velocity_filtered.time = filt.time;
-                app.LogData.odom_velocity_filtered.vx   = filt.x;
-                app.LogData.odom_velocity_filtered.vy   = filt.y;
-                app.LogData.odom_velocity_filtered.mag  = filt.mag;
+                try
+                    filt = computeOdomVelocity_SG(app.LogData.odom);
+                    app.LogData.odom_velocity_filtered.time = filt.time;
+                    app.LogData.odom_velocity_filtered.vx   = filt.x;
+                    app.LogData.odom_velocity_filtered.vy   = filt.y;
+                    app.LogData.odom_velocity_filtered.mag  = filt.mag;
+                catch ME
+                    warning('DataVisualizer:FilteredVelocity', ...
+                        ['Filtered velocity unavailable: %s\n' ...
+                         'Install Signal Processing Toolbox to enable this feature.'], ...
+                        ME.message);
+                end
             end
 
             app.FieldList = buildFieldList(app);

@@ -1,4 +1,12 @@
 function odom_vel = computeOdomVelocity_SG(odom)
+    % Check for Signal Processing Toolbox (required for sgolay)
+    if ~license('test', 'Signal_Toolbox')
+        error('computeOdomVelocity_SG:MissingToolbox', ...
+              ['Signal Processing Toolbox is required for Savitzky-Golay filtering.\n' ...
+               'Install it via the MATLAB Add-On Explorer:\n' ...
+               '  Home > Add-Ons > Get Add-Ons > search "Signal Processing Toolbox"']);
+    end
+
     t = odom.time(:);
     dt = mean(diff(t));
 
