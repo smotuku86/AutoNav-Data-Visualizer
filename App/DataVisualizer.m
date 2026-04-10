@@ -429,9 +429,13 @@ classdef DataVisualizer < handle
                 if isfield(sp, 'fitColor') && ~isempty(sp.fitColor)
                     fitColor = hex2rgb(sp.fitColor);
                 end
+                speedUnit = 'off';
+                if isfield(sp, 'speedUnit') && ~isempty(sp.speedUnit)
+                    speedUnit = sp.speedUnit;
+                end
 
                 ax = subplot(rows, cols, k, 'Parent', app.PlotFigure);
-                plotSubplot(app, ax, xTags, yTags, spLabels, useScatter, fitDeg, fitColor);
+                plotSubplot(app, ax, xTags, yTags, spLabels, useScatter, fitDeg, fitColor, speedUnit);
             end
 
             % Bring main app window back to front
@@ -441,7 +445,7 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot a single subplot
         % ==============================================================
-        function plotSubplot(app, ax, xTags, yTags, spLabels, useScatter, fitDeg, fitColor)
+        function plotSubplot(app, ax, xTags, yTags, spLabels, useScatter, fitDeg, fitColor, speedUnit)
             grid(ax, 'on');
 
             xTag = getTagStruct(xTags, 1);
@@ -601,6 +605,30 @@ classdef DataVisualizer < handle
             if numel(legendEntries) >= 1
                 legend(ax, plotHandles, legendEntries, ...
                     'Interpreter', 'none', 'Location', 'best');
+            end
+
+            % Add speed conversion right axis when Y data is in m/s
+            hasMPS = any(strcmp(yUnits, 'm/s'));
+            if hasMPS && ~useDualAxis && ~strcmp(speedUnit, 'off')
+                % Conversion factors from m/s
+                convMap = struct( ...
+                    'mph',   struct('factor', 2.23694,   'label', '[mph]'), ...
+                    'kph',   struct('factor', 3.6,       'label', '[kph]'), ...
+                    'knots', struct('factor', 1.94384,   'label', '[knots]'), ...
+                    'mach',  struct('factor', 1/343,     'label', '[Mach]'), ...
+                    'ft_s',  struct('factor', 3.28084,   'label', '[ft/s]'), ...
+                    'cm_s',  struct('factor', 100,       'label', '[cm/s]'));
+
+                key = strrep(speedUnit, '/', '_');
+                if isfield(convMap, key)
+                    conv = convMap.(key);
+                    leftLims = ylim(ax);
+                    yyaxis(ax, 'right');
+                    ylim(ax, leftLims * conv.factor);
+                    ylabel(ax, conv.label, 'Interpreter', 'none');
+                    set(ax, 'YColor', [0.4 0.4 0.4]);
+                    yyaxis(ax, 'left');
+                end
             end
 
             hold(ax, 'off');

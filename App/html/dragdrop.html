@@ -629,7 +629,8 @@ function sendAssignmentsToMatlab() {
                 zLabel: sp.zLabel,
                 scatter: sp.scatter,
                 fitDegree: sp.fitDegree,
-                fitColor: sp.fitColor
+                fitColor: sp.fitColor,
+                speedUnit: sp.speedUnit
             };
         })
     };
@@ -642,7 +643,7 @@ function sendAssignmentsToMatlab() {
 // Subplot management
 // ============================================================
 function makeEmptySubplot() {
-    return {xTags: [], yTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000'};
+    return {xTags: [], yTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000', speedUnit: 'mph'};
 }
 
 function initSubplots() {
@@ -996,6 +997,41 @@ function createSubplotZone(index) {
         colorInput.addEventListener('mousedown', function(e) { e.stopPropagation(); });
         colorLabel.appendChild(colorInput);
         controlsRow.appendChild(colorLabel);
+
+        // Speed unit dropdown — only when Y data includes m/s
+        var hasSpeed = subplots[index].yTags.some(function(t) { return t.unit === 'm/s'; });
+        if (hasSpeed) {
+            var sep = document.createElement('span');
+            sep.style.cssText = 'border-left:1px solid #ccc; height:14px; margin:0 4px;';
+            controlsRow.appendChild(sep);
+
+            var speedLabel = document.createElement('label');
+            speedLabel.appendChild(document.createTextNode('Speed: '));
+            var speedSelect = document.createElement('select');
+            var speedOpts = [
+                {value: 'off', text: 'Off'},
+                {value: 'mph', text: 'mph'},
+                {value: 'kph', text: 'kph'},
+                {value: 'knots', text: 'Knots'},
+                {value: 'mach', text: 'Mach'},
+                {value: 'ft/s', text: 'ft/s'},
+                {value: 'cm/s', text: 'cm/s'}
+            ];
+            speedOpts.forEach(function(opt) {
+                var o = document.createElement('option');
+                o.value = opt.value;
+                o.textContent = opt.text;
+                if (opt.value === subplots[index].speedUnit) o.selected = true;
+                speedSelect.appendChild(o);
+            });
+            speedSelect.addEventListener('change', function() {
+                subplots[index].speedUnit = speedSelect.value;
+                sendAssignmentsToMatlab();
+            });
+            speedSelect.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+            speedLabel.appendChild(speedSelect);
+            controlsRow.appendChild(speedLabel);
+        }
 
         zone.appendChild(controlsRow);
     }
