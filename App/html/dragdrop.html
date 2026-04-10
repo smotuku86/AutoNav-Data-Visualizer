@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Visualizer - Drag &amp; Drop</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    background: #f5f5f5;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* ---- Left panel: subplot drop zones ---- */
+#subplot-panel {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    align-content: stretch;
+    min-height: 0;
+}
+.subplot-zone {
+    background: #fff;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100px;
+    transition: border-color 0.15s, background 0.15s;
+}
+.subplot-zone.swap-target {
+    border-color: #f0ad4e;
+    background: #fff8e1;
+}
+.subplot-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 6px;
+}
+.drag-handle {
+    cursor: grab;
+    color: #aaa;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.drag-handle:hover {
+    background: #eee;
+    color: #666;
+}
+.drag-handle:active { cursor: grabbing; }
+.subplot-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+}
+.drop-row {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+    margin-bottom: 6px;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.drop-row-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: #666;
+    width: 20px;
+    flex-shrink: 0;
+}
+.drop-target {
+    flex: 1;
+    min-height: 32px;
+    border: 1px dashed #bbb;
+    border-radius: 4px;
+    padding: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    transition: background 0.15s, border-color 0.15s;
+}
+.drop-target.drag-over {
+    background: #e8f0fe;
+    border-color: #4a90d9;
+}
+.empty-hint {
+    color: #aaa;
+    font-style: italic;
+    font-size: 11px;
+    pointer-events: none;
+}
+.auto-time-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    border: 1px solid #a3d9b1;
+    border-radius: 10px;
+    background: #d4edda;
+    color: #155724;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.auto-time-btn:hover {
+    background: #b7dfca;
+}
+
+/* ---- Controls row (scatter toggle + fit dropdown) ---- */
+.controls-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+    margin-bottom: 2px;
+    font-size: 11px;
+    color: #555;
+}
+.controls-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+}
+.controls-row input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+.controls-row select {
+    padding: 1px 4px;
+    font-size: 11px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fafafa;
+    color: #333;
+    cursor: pointer;
+    outline: none;
+}
+.controls-row select:focus {
+    border-color: #4a90d9;
+}
+
+/* ---- Label inputs ---- */
+.label-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+}
+.label-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.label-group label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #888;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.label-group input {
+    width: 100%;
+    padding: 3px 6px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fafafa;
+    color: #333;
+    outline: none;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.label-group input:focus {
+    border-color: #4a90d9;
+    background: #fff;
+}
+
+/* ---- Right panel: available fields ---- */
+#field-panel {
+    width: 260px;
+    background: #fff;
+    border-left: 1px solid #ddd;
+    padding: 10px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+#field-panel h3 {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #eee;
+}
+.section-label {
+    font-weight: 700;
+    font-size: 13px;
+    color: #333;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+}
+.section-divider {
+    border: none;
+    border-top: 2px solid #333;
+    margin: 10px 0 6px 0;
+}
+.subgroup-divider {
+    border: none;
+    border-top: 1px solid #ccc;
+    margin: 6px 15%;
+}
+.field-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+/* ---- Tags (shared styles) ---- */
+.tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    cursor: grab;
+    white-space: nowrap;
+}
+.tag:active { cursor: grabbing; }
+.tag.source-tag {
+    background: #e8e8e8;
+    color: #444;
+    border: 1px solid #ccc;
+}
+.tag.source-tag:hover {
+    background: #ddd;
+}
+.tag.special-tag {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #82c991;
+    font-weight: 600;
+}
+.tag.special-tag:hover {
+    background: #b7dfca;
+}
+.tag.x-tag {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #a3d9b1;
+}
+.tag.y-tag {
+    background: #cce5ff;
+    color: #004085;
+    border: 1px solid #99caff;
+}
+.tag.special-dropped {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #82c991;
+    font-weight: 600;
+}
+.tag .remove-btn {
+    margin-left: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    opacity: 0.6;
+    font-size: 14px;
+    line-height: 1;
+}
+.tag .remove-btn:hover {
+    opacity: 1;
+    color: #c00;
+}
+.tag .role-indicator {
+    font-weight: 700;
+    margin-right: 3px;
+    font-size: 11px;
+}
+
+/* ---- Drag ghost (follows cursor during drag) ---- */
+#drag-ghost {
+    position: fixed;
+    display: none;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: #ffe082;
+    color: #333;
+    border: 1px solid #ffc107;
+    pointer-events: none;
+    z-index: 9999;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    opacity: 0.92;
+}
+#drag-ghost.subplot-ghost {
+    background: #fff3cd;
+    border-color: #f0ad4e;
+    font-weight: 600;
+}
+
+/* ---- Layout picker bar ---- */
+#layout-bar {
+    height: 34px;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+    flex-shrink: 0;
+    position: relative;
+}
+#layout-btn {
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fafafa;
+    color: #333;
+    cursor: pointer;
+}
+#layout-btn:hover {
+    background: #eee;
+    border-color: #999;
+}
+#layout-popover {
+    position: absolute;
+    top: 32px;
+    left: 10px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1000;
+}
+.layout-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 24px);
+    grid-template-rows: repeat(4, 24px);
+    gap: 2px;
+}
+.layout-cell {
+    width: 24px;
+    height: 24px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #f5f5f5;
+    cursor: pointer;
+    transition: background 0.08s, border-color 0.08s;
+}
+.layout-cell.highlighted {
+    background: #4a90d9;
+    border-color: #3a7bc8;
+}
+#layout-preview {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    margin-top: 4px;
+}
+
+/* ---- Left panel wrapper ---- */
+#left-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ---- No-data message ---- */
+#no-data-msg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #999;
+    font-size: 16px;
+    text-align: center;
+    padding: 20px;
+}
+</style>
+</head>
+<body>
+
+<div id="left-panel">
+    <div id="layout-bar">
+        <button id="layout-btn">1×1</button>
+        <div id="layout-popover" style="display:none">
+            <div class="layout-grid" id="layout-grid"></div>
+            <div id="layout-preview">1×1</div>
+        </div>
+    </div>
+    <div id="subplot-panel">
+        <div id="no-data-msg">Load a CSV file to begin</div>
+    </div>
+</div>
+
+<div id="field-panel">
+    <h3>Available Fields</h3>
+    <div id="field-list">
+        <div style="color:#999; font-style:italic;">No data loaded</div>
+    </div>
+</div>
+
+<div id="drag-ghost"></div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+var fields = [];
+var layout = [1, 1];
+var subplots = [];
+
+// Custom drag state
+var isDragging = false;
+var dragInfo = null;
+var dragStartX = 0;
+var dragStartY = 0;
+var DRAG_THRESHOLD = 4;
+var dragActivated = false;
+var currentHighlight = null;
+var dragType = 'tag'; // 'tag' or 'subplot'
+
+var matlabComponent = null;
+var popoverOpen = false;
+
+// ============================================================
+// Layout grid picker
+// ============================================================
+function initLayoutGrid() {
+    var grid = document.getElementById('layout-grid');
+    grid.innerHTML = '';
+    for (var r = 1; r <= 4; r++) {
+        for (var c = 1; c <= 4; c++) {
+            var cell = document.createElement('div');
+            cell.className = 'layout-cell';
+            cell.dataset.row = String(r);
+            cell.dataset.col = String(c);
+            cell.addEventListener('mouseover', onGridCellHover);
+            cell.addEventListener('click', onGridCellClick);
+            grid.appendChild(cell);
+        }
+    }
+}
+
+function onGridCellHover(e) {
+    var r = parseInt(e.target.dataset.row, 10);
+    var c = parseInt(e.target.dataset.col, 10);
+    highlightGridCells(r, c);
+    document.getElementById('layout-preview').textContent = r + '\u00d7' + c;
+}
+
+function highlightGridCells(maxRow, maxCol) {
+    var cells = document.querySelectorAll('.layout-cell');
+    for (var i = 0; i < cells.length; i++) {
+        var cr = parseInt(cells[i].dataset.row, 10);
+        var cc = parseInt(cells[i].dataset.col, 10);
+        if (cr <= maxRow && cc <= maxCol) {
+            cells[i].classList.add('highlighted');
+        } else {
+            cells[i].classList.remove('highlighted');
+        }
+    }
+}
+
+function onGridCellClick(e) {
+    var r = parseInt(e.target.dataset.row, 10);
+    var c = parseInt(e.target.dataset.col, 10);
+    e.stopPropagation();
+    sendLayoutToMatlab(r, c);
+    closePopover();
+}
+
+function sendLayoutToMatlab(rows, cols) {
+    layout = [rows, cols];
+    document.getElementById('layout-btn').textContent = rows + '\u00d7' + cols;
+    updateSubplotsForLayout();
+    renderSubplotPanel();
+    if (matlabComponent !== null) {
+        matlabComponent.Data = {type: 'layoutChange', layout: [rows, cols]};
+    }
+}
+
+function togglePopover() {
+    var popover = document.getElementById('layout-popover');
+    if (popoverOpen) {
+        closePopover();
+    } else {
+        popover.style.display = 'block';
+        popoverOpen = true;
+        // Highlight current layout
+        highlightGridCells(layout[0], layout[1]);
+        document.getElementById('layout-preview').textContent = layout[0] + '\u00d7' + layout[1];
+    }
+}
+
+function closePopover() {
+    document.getElementById('layout-popover').style.display = 'none';
+    popoverOpen = false;
+}
+
+// Close popover when clicking outside
+document.addEventListener('mousedown', function(e) {
+    if (!popoverOpen) return;
+    var popover = document.getElementById('layout-popover');
+    var btn = document.getElementById('layout-btn');
+    if (!popover.contains(e.target) && e.target !== btn) {
+        closePopover();
+    }
+});
+
+// Wire up the button
+document.addEventListener('DOMContentLoaded', function() {
+    initLayoutGrid();
+    document.getElementById('layout-btn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        togglePopover();
+    });
+});
+
+// ============================================================
+// Helpers
+// ============================================================
+function isSpecialField(field) {
+    return field && field.indexOf('__') === 0;
+}
+
+function subplotHasSpecial(index) {
+    var sp = subplots[index];
+    for (var i = 0; i < sp.yTags.length; i++) {
+        if (isSpecialField(sp.yTags[i].field)) return true;
+    }
+    for (var i = 0; i < sp.xTags.length; i++) {
+        if (isSpecialField(sp.xTags[i].field)) return true;
+    }
+    return false;
+}
+
+function subplotHasField(index, fieldName) {
+    var sp = subplots[index];
+    for (var i = 0; i < sp.yTags.length; i++) {
+        if (sp.yTags[i].field === fieldName) return true;
+    }
+    for (var i = 0; i < sp.xTags.length; i++) {
+        if (sp.xTags[i].field === fieldName) return true;
+    }
+    return false;
+}
+
+function prettyField(name) {
+    return name.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
+// ============================================================
+// MATLAB <-> JS bridge
+// ============================================================
+function setup(htmlComponent) {
+    matlabComponent = htmlComponent;
+    htmlComponent.addEventListener("DataChanged", function() {
+        handleMatlabMessage(htmlComponent.Data);
+    });
+}
+
+function handleMatlabMessage(data) {
+    if (!data || !data.type) return;
+    if (data.type === 'fieldsUpdate') {
+        fields = normalizeArray(data.fields);
+        if (data.layout) layout = normalizeLayout(data.layout);
+        updateLayoutButton();
+        initSubplots();
+        renderFieldPanel();
+        renderSubplotPanel();
+    } else if (data.type === 'layoutUpdate') {
+        layout = normalizeLayout(data.layout);
+        updateLayoutButton();
+        updateSubplotsForLayout();
+        renderSubplotPanel();
+    }
+}
+
+function updateLayoutButton() {
+    document.getElementById('layout-btn').textContent = layout[0] + '\u00d7' + layout[1];
+}
+
+function normalizeLayout(val) {
+    if (Array.isArray(val)) return [val[0] || 1, val[1] || 1];
+    if (val && typeof val === 'object') return [val[0] || 1, val[1] || 1];
+    return [1, 1];
+}
+
+function normalizeArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'object') return [val];
+    return [];
+}
+
+function sendAssignmentsToMatlab() {
+    var payload = {
+        type: 'assignmentsUpdate',
+        subplots: subplots.map(function(sp, i) {
+            return {
+                index: i + 1,
+                xTags: sp.xTags.map(function(t) { return {topic: t.topic, field: t.field, displayName: t.displayName || '', unit: t.unit || ''}; }),
+                yTags: sp.yTags.map(function(t) { return {topic: t.topic, field: t.field, displayName: t.displayName || '', unit: t.unit || ''}; }),
+                title: sp.title,
+                xLabel: sp.xLabel,
+                yLabel: sp.yLabel,
+                zLabel: sp.zLabel,
+                scatter: sp.scatter,
+                fitDegree: sp.fitDegree,
+                fitColor: sp.fitColor
+            };
+        })
+    };
+    if (matlabComponent !== null) {
+        matlabComponent.Data = payload;
+    }
+}
+
+// ============================================================
+// Subplot management
+// ============================================================
+function makeEmptySubplot() {
+    return {xTags: [], yTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000'};
+}
+
+function initSubplots() {
+    var count = layout[0] * layout[1];
+    subplots = [];
+    for (var i = 0; i < count; i++) subplots.push(makeEmptySubplot());
+}
+
+function updateSubplotsForLayout() {
+    var newCount = layout[0] * layout[1];
+    while (subplots.length < newCount) subplots.push(makeEmptySubplot());
+    if (subplots.length > newCount) subplots = subplots.slice(0, newCount);
+    sendAssignmentsToMatlab();
+}
+
+function swapSubplots(a, b) {
+    var tmp = subplots[a];
+    subplots[a] = subplots[b];
+    subplots[b] = tmp;
+    renderSubplotPanel();
+    sendAssignmentsToMatlab();
+}
+
+// ============================================================
+// Auto-fill labels
+// ============================================================
+function autoFillLabels(index) {
+    var sp = subplots[index];
+
+    // Special field labels
+    if (subplotHasSpecial(index)) {
+        var allTags = sp.yTags.concat(sp.xTags);
+        for (var i = 0; i < allTags.length; i++) {
+            if (allTags[i].field === '__gps__') {
+                sp.title = 'GPS Points Colored by Altitude';
+                sp.xLabel = 'Longitude';
+                sp.yLabel = 'Latitude';
+                sp.zLabel = 'Altitude [m]';
+                return;
+            }
+            if (allTags[i].field === '__odom__') {
+                sp.title = 'Robot Path from Odometry';
+                sp.xLabel = 'X Position [m]';
+                sp.yLabel = 'Y Position [m]';
+                return;
+            }
+            if (allTags[i].field === '__electrical__') {
+                sp.title = 'Electrical Data';
+                sp.xLabel = 'Voltage [V]';
+                sp.yLabel = 'Current [A]';
+                sp.zLabel = 'Power [W]';
+                return;
+            }
+            if (allTags[i].field === '__imu__') {
+                sp.title = 'IMU Data';
+                sp.xLabel = 'Acceleration [m/s\u00b2]';
+                sp.yLabel = 'Gyroscope [rad/s]';
+                sp.zLabel = 'Orientation [rad]';
+                return;
+            }
+        }
+        // Generic special fallback
+        sp.title = '';
+        sp.xLabel = '';
+        sp.yLabel = '';
+        return;
+    }
+
+    // X label
+    if (sp.xTags.length > 0) {
+        var xt = sp.xTags[0];
+        var xName = xt.displayName || prettyField(xt.field);
+        sp.xLabel = xName + ' [' + (xt.unit || '-') + ']';
+    } else {
+        sp.xLabel = '';
+    }
+
+    // Y label
+    if (sp.yTags.length === 1) {
+        var yt = sp.yTags[0];
+        var yName = yt.displayName || prettyField(yt.field);
+        sp.yLabel = yName + ' [' + (yt.unit || '-') + ']';
+    } else if (sp.yTags.length > 1) {
+        var allUnits = sp.yTags.map(function(t) { return t.unit || '-'; });
+        var allSame = allUnits.every(function(u) { return u === allUnits[0]; });
+        var names = sp.yTags.map(function(t) { return t.displayName || prettyField(t.field); });
+        if (allSame) {
+            sp.yLabel = names.join(', ') + ' [' + allUnits[0] + ']';
+        } else {
+            sp.yLabel = sp.yTags.map(function(t) {
+                return (t.displayName || prettyField(t.field)) + ' [' + (t.unit || '-') + ']';
+            }).join(', ');
+        }
+    } else {
+        sp.yLabel = '';
+    }
+
+    // Title
+    if (sp.yTags.length > 0 && sp.xTags.length > 0) {
+        var yN = sp.yTags.map(function(t) { return t.displayName || prettyField(t.field); }).join(', ');
+        sp.title = yN + ' vs ' + (sp.xTags[0].displayName || prettyField(sp.xTags[0].field));
+    } else if (sp.yTags.length > 0) {
+        sp.title = sp.yTags.map(function(t) { return t.displayName || prettyField(t.field); }).join(', ');
+    } else {
+        sp.title = '';
+    }
+}
+
+// ============================================================
+// Render field panel (right side)
+// ============================================================
+// Section definitions: ordered list of {name, groups: [[topics], ...]}
+// Sub-groups within a section are separated by light gray lines.
+// Sections are separated by dark black lines.
+var sectionConfig = [
+    {name: 'GPS',        groups: [['gps_fix']]},
+    {name: 'ODOMETRY',   groups: [['odom'], ['odom_velocity'], ['odom_velocity_filtered']]},
+    {name: 'ENCODERS',   groups: [['encoders']]},
+    {name: 'CMD VEL',    groups: [['cmd_vel']]},
+    {name: 'MOTOR',      groups: [['motor_speed']]},
+    {name: 'ELECTRICAL', groups: [['electrical', 'electrical_voltage', 'electrical_current', 'electrical_power']]},
+    {name: 'IMU',        groups: [['zed_zed_node_imu_data']]}
+
+];
+
+function renderFieldPanel() {
+    var container = document.getElementById('field-list');
+    container.innerHTML = '';
+
+    if (fields.length === 0) {
+        container.innerHTML = '<div style="color:#999; font-style:italic;">No data loaded</div>';
+        return;
+    }
+
+    // Group fields by topic
+    var topicFields = {};
+    fields.forEach(function(f) {
+        if (!topicFields[f.topic]) topicFields[f.topic] = [];
+        topicFields[f.topic].push(f);
+    });
+
+    // Track assigned topics
+    var assigned = {};
+    sectionConfig.forEach(function(sec) {
+        sec.groups.forEach(function(g) {
+            g.forEach(function(t) { assigned[t] = true; });
+        });
+    });
+
+    // Build full section list: configured + any remaining topics
+    var allSections = sectionConfig.slice();
+    Object.keys(topicFields).sort().forEach(function(t) {
+        if (!assigned[t]) {
+            allSections.push({name: t.toUpperCase().replace(/_/g, ' '), groups: [[t]]});
+        }
+    });
+
+    var renderedCount = 0;
+    allSections.forEach(function(section) {
+        // Skip sections with no data
+        var hasData = section.groups.some(function(g) {
+            return g.some(function(t) { return topicFields[t] && topicFields[t].length > 0; });
+        });
+        if (!hasData) return;
+
+        // Dark divider between sections
+        if (renderedCount > 0) {
+            var hr = document.createElement('hr');
+            hr.className = 'section-divider';
+            container.appendChild(hr);
+        }
+
+        // Section header
+        var label = document.createElement('div');
+        label.className = 'section-label';
+        label.textContent = section.name;
+        container.appendChild(label);
+
+        // Render sub-groups with light dividers between them
+        var groupCount = 0;
+        section.groups.forEach(function(topicList) {
+            var subHasData = topicList.some(function(t) { return topicFields[t]; });
+            if (!subHasData) return;
+
+            if (groupCount > 0) {
+                var lightHr = document.createElement('hr');
+                lightHr.className = 'subgroup-divider';
+                container.appendChild(lightHr);
+            }
+
+            topicList.forEach(function(topic) {
+                if (!topicFields[topic]) return;
+                var tagsDiv = document.createElement('div');
+                tagsDiv.className = 'field-tags';
+                topicFields[topic].forEach(function(f) {
+                    if (f.field === 'time') return;
+                    tagsDiv.appendChild(createSourceTag(f));
+                });
+                container.appendChild(tagsDiv);
+            });
+
+            groupCount++;
+        });
+
+        renderedCount++;
+    });
+}
+
+function createSourceTag(fieldInfo) {
+    var tag = document.createElement('span');
+    // Special tags and time fields get green styling
+    var isGreen = isSpecialField(fieldInfo.field) || fieldInfo.field === 'time';
+    tag.className = isGreen ? 'tag special-tag' : 'tag source-tag';
+    tag.textContent = fieldInfo.displayName;
+    tag.title = fieldInfo.topic + '.' + fieldInfo.field +
+                (fieldInfo.unit ? ' [' + fieldInfo.unit + ']' : '');
+
+    tag.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        beginDragWatch(e, {
+            source: 'panel',
+            topic: fieldInfo.topic,
+            field: fieldInfo.field,
+            displayName: fieldInfo.displayName,
+            unit: fieldInfo.unit || ''
+        }, 'tag');
+    });
+
+    return tag;
+}
+
+// ============================================================
+// Render subplot panel (left side)
+// ============================================================
+function renderSubplotPanel() {
+    var panel = document.getElementById('subplot-panel');
+    panel.innerHTML = '';
+
+    var count = layout[0] * layout[1];
+    if (count === 0 || fields.length === 0) {
+        panel.innerHTML = '<div id="no-data-msg">Load a CSV file to begin</div>';
+        return;
+    }
+
+    panel.style.gridTemplateColumns = 'repeat(' + layout[1] + ', 1fr)';
+    panel.style.gridTemplateRows = 'repeat(' + layout[0] + ', 1fr)';
+
+    for (var i = 0; i < count; i++) {
+        panel.appendChild(createSubplotZone(i));
+    }
+}
+
+function createSubplotZone(index) {
+    var zone = document.createElement('div');
+    zone.className = 'subplot-zone';
+    zone.dataset.subplotIndex = String(index);
+
+    // Header with drag handle + title
+    var header = document.createElement('div');
+    header.className = 'subplot-header';
+
+    var handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.textContent = '\u2630'; // trigram / hamburger icon
+    handle.title = 'Drag to reorder subplots';
+    handle.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        beginDragWatch(e, {
+            source: 'subplot',
+            srcSubplotIndex: index
+        }, 'subplot');
+    });
+    header.appendChild(handle);
+
+    var title = document.createElement('span');
+    title.className = 'subplot-title';
+    title.textContent = 'Subplot ' + (index + 1);
+    header.appendChild(title);
+
+    zone.appendChild(header);
+
+    var isSpecial = subplotHasSpecial(index);
+
+    if (isSpecial) {
+        zone.appendChild(createSpecialRow(index));
+    } else {
+        zone.appendChild(createDropRow('Y', 'y-zone', index, 'y'));
+        zone.appendChild(createDropRow('X', 'x-zone', index, 'x'));
+
+        // Controls row (scatter toggle + fit dropdown) — only for normal plots
+        var controlsRow = document.createElement('div');
+        controlsRow.className = 'controls-row';
+
+        var scatterLabel = document.createElement('label');
+        var scatterCb = document.createElement('input');
+        scatterCb.type = 'checkbox';
+        scatterCb.checked = subplots[index].scatter;
+        scatterCb.addEventListener('change', function() {
+            subplots[index].scatter = scatterCb.checked;
+            sendAssignmentsToMatlab();
+        });
+        scatterCb.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        scatterLabel.appendChild(scatterCb);
+        scatterLabel.appendChild(document.createTextNode(' Scatter'));
+        controlsRow.appendChild(scatterLabel);
+
+        var fitLabel = document.createElement('label');
+        fitLabel.appendChild(document.createTextNode('Fit: '));
+        var fitSelect = document.createElement('select');
+        var fitOptions = [
+            {value: '0', text: 'Off'},
+            {value: '1', text: '1 (Linear)'},
+            {value: '2', text: '2 (Quadratic)'},
+            {value: '3', text: '3 (Cubic)'},
+            {value: '4', text: '4'},
+            {value: '5', text: '5'}
+        ];
+        fitOptions.forEach(function(opt) {
+            var o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.text;
+            if (parseInt(opt.value, 10) === subplots[index].fitDegree) o.selected = true;
+            fitSelect.appendChild(o);
+        });
+        fitSelect.addEventListener('change', function() {
+            subplots[index].fitDegree = parseInt(fitSelect.value, 10);
+            sendAssignmentsToMatlab();
+        });
+        fitSelect.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        fitLabel.appendChild(fitSelect);
+        controlsRow.appendChild(fitLabel);
+
+        var colorLabel = document.createElement('label');
+        colorLabel.appendChild(document.createTextNode('Color: '));
+        var colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.value = subplots[index].fitColor;
+        colorInput.style.width = '24px';
+        colorInput.style.height = '18px';
+        colorInput.style.padding = '0';
+        colorInput.style.border = '1px solid #ccc';
+        colorInput.style.borderRadius = '3px';
+        colorInput.style.cursor = 'pointer';
+        colorInput.style.verticalAlign = 'middle';
+        colorInput.addEventListener('input', function() {
+            subplots[index].fitColor = colorInput.value;
+            sendAssignmentsToMatlab();
+        });
+        colorInput.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        colorLabel.appendChild(colorInput);
+        controlsRow.appendChild(colorLabel);
+
+        zone.appendChild(controlsRow);
+    }
+
+    // Label inputs — special plots get contextual labels
+    var labelRow = document.createElement('div');
+    labelRow.className = 'label-row';
+    labelRow.appendChild(createLabelInput('Title', 'title', index, subplots[index].title));
+    if (subplotHasField(index, '__gps__')) {
+        labelRow.appendChild(createLabelInput('Longitude', 'xLabel', index, subplots[index].xLabel));
+        labelRow.appendChild(createLabelInput('Latitude', 'yLabel', index, subplots[index].yLabel));
+        labelRow.appendChild(createLabelInput('Altitude', 'zLabel', index, subplots[index].zLabel));
+    } else if (subplotHasField(index, '__electrical__')) {
+        labelRow.appendChild(createLabelInput('Voltage', 'xLabel', index, subplots[index].xLabel));
+        labelRow.appendChild(createLabelInput('Current', 'yLabel', index, subplots[index].yLabel));
+        labelRow.appendChild(createLabelInput('Power', 'zLabel', index, subplots[index].zLabel));
+    } else if (subplotHasField(index, '__imu__')) {
+        labelRow.appendChild(createLabelInput('Accel', 'xLabel', index, subplots[index].xLabel));
+        labelRow.appendChild(createLabelInput('Gyro', 'yLabel', index, subplots[index].yLabel));
+        labelRow.appendChild(createLabelInput('Orient', 'zLabel', index, subplots[index].zLabel));
+    } else {
+        labelRow.appendChild(createLabelInput('X Axis', 'xLabel', index, subplots[index].xLabel));
+        labelRow.appendChild(createLabelInput('Y Axis', 'yLabel', index, subplots[index].yLabel));
+    }
+    zone.appendChild(labelRow);
+
+    return zone;
+}
+
+function createLabelInput(label, key, subplotIndex, value) {
+    var group = document.createElement('div');
+    group.className = 'label-group';
+
+    var lbl = document.createElement('label');
+    lbl.textContent = label;
+    group.appendChild(lbl);
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = value || '';
+    input.placeholder = label;
+    input.addEventListener('input', function() {
+        subplots[subplotIndex][key] = input.value;
+        sendAssignmentsToMatlab();
+    });
+    input.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    group.appendChild(input);
+
+    return group;
+}
+
+function createDropRow(label, zoneClass, subplotIndex, role) {
+    var row = document.createElement('div');
+    row.className = 'drop-row';
+
+    var rowLabel = document.createElement('div');
+    rowLabel.className = 'drop-row-label';
+    rowLabel.textContent = label + ':';
+    row.appendChild(rowLabel);
+
+    var target = document.createElement('div');
+    target.className = 'drop-target ' + zoneClass;
+    target.dataset.subplot = String(subplotIndex);
+    target.dataset.role = role;
+
+    var tags = role === 'x' ? subplots[subplotIndex].xTags : subplots[subplotIndex].yTags;
+    if (tags.length === 0) {
+        var hint = document.createElement('span');
+        hint.className = 'empty-hint';
+        hint.textContent = role === 'x' ? 'Drop X field here' : 'Drop Y field(s) here';
+        target.appendChild(hint);
+    } else {
+        tags.forEach(function(t, tagIdx) {
+            target.appendChild(createDroppedTag(t, subplotIndex, role, tagIdx));
+        });
+    }
+
+    row.appendChild(target);
+
+    // Auto-time button for X rows
+    if (role === 'x') {
+        var timeBtn = document.createElement('button');
+        timeBtn.className = 'auto-time-btn';
+        timeBtn.textContent = 'Time';
+        timeBtn.title = 'Set X to time field from first Y tag\'s topic';
+        timeBtn.addEventListener('click', function() {
+            var sp = subplots[subplotIndex];
+            var topic = sp.yTags.length > 0 ? sp.yTags[0].topic : (fields.length > 0 ? fields[0].topic : '');
+            if (!topic) return;
+            var timeField = null;
+            for (var i = 0; i < fields.length; i++) {
+                if (fields[i].topic === topic && fields[i].field === 'time') { timeField = fields[i]; break; }
+            }
+            if (!timeField) return;
+            sp.xTags = [{topic: timeField.topic, field: timeField.field, displayName: timeField.displayName, unit: timeField.unit}];
+            autoFillLabels(subplotIndex);
+            renderSubplotPanel();
+            sendAssignmentsToMatlab();
+        });
+        row.appendChild(timeBtn);
+    }
+
+    return row;
+}
+
+function createSpecialRow(subplotIndex) {
+    var row = document.createElement('div');
+    row.className = 'drop-row';
+
+    var rowLabel = document.createElement('div');
+    rowLabel.className = 'drop-row-label';
+    rowLabel.style.width = 'auto';
+    rowLabel.textContent = 'Special:';
+    row.appendChild(rowLabel);
+
+    // Find the special tag (could be in yTags or xTags)
+    var sp = subplots[subplotIndex];
+    var tagInfo = null;
+    var srcRole = 'y';
+    var srcIdx = 0;
+    for (var i = 0; i < sp.yTags.length; i++) {
+        if (isSpecialField(sp.yTags[i].field)) { tagInfo = sp.yTags[i]; srcRole = 'y'; srcIdx = i; break; }
+    }
+    if (!tagInfo) {
+        for (var i = 0; i < sp.xTags.length; i++) {
+            if (isSpecialField(sp.xTags[i].field)) { tagInfo = sp.xTags[i]; srcRole = 'x'; srcIdx = i; break; }
+        }
+    }
+
+    if (tagInfo) {
+        var tag = document.createElement('span');
+        tag.className = 'tag special-dropped';
+        var nameSpan = document.createElement('span');
+        nameSpan.textContent = tagInfo.displayName;
+        tag.appendChild(nameSpan);
+
+        var removeBtn = document.createElement('span');
+        removeBtn.className = 'remove-btn';
+        removeBtn.textContent = '\u00d7';
+        removeBtn.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        removeBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var list = srcRole === 'x' ? sp.xTags : sp.yTags;
+            list.splice(srcIdx, 1);
+            autoFillLabels(subplotIndex);
+            renderSubplotPanel();
+            sendAssignmentsToMatlab();
+        });
+        tag.appendChild(removeBtn);
+        row.appendChild(tag);
+    }
+
+    return row;
+}
+
+function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
+    var tag = document.createElement('span');
+    var special = isSpecialField(tagInfo.field);
+    tag.className = special ? 'tag special-dropped' : ('tag ' + (role === 'x' ? 'x-tag' : 'y-tag'));
+
+    if (!special) {
+        var roleSpan = document.createElement('span');
+        roleSpan.className = 'role-indicator';
+        roleSpan.textContent = role.toUpperCase();
+        tag.appendChild(roleSpan);
+    }
+
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = tagInfo.displayName;
+    tag.appendChild(nameSpan);
+
+    var removeBtn = document.createElement('span');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    removeBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var sp = subplots[subplotIndex];
+        var list = role === 'x' ? sp.xTags : sp.yTags;
+        list.splice(tagIndex, 1);
+        autoFillLabels(subplotIndex);
+        renderSubplotPanel();
+        sendAssignmentsToMatlab();
+    });
+    tag.appendChild(removeBtn);
+
+    // Click to toggle X/Y (not for special tags)
+    if (!special) {
+        tag.addEventListener('click', function(e) {
+            if (e.target === removeBtn || e.target.parentNode === removeBtn) return;
+            toggleTagRole(subplotIndex, role, tagIndex);
+        });
+    }
+
+    // Drag from zone (move)
+    tag.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        if (e.target === removeBtn || e.target.parentNode === removeBtn) return;
+        e.preventDefault();
+        beginDragWatch(e, {
+            source: 'zone',
+            topic: tagInfo.topic,
+            field: tagInfo.field,
+            displayName: tagInfo.displayName,
+            unit: tagInfo.unit || '',
+            srcSubplot: subplotIndex,
+            srcRole: role,
+            srcIndex: tagIndex
+        }, 'tag');
+    });
+
+    return tag;
+}
+
+function toggleTagRole(subplotIndex, role, tagIndex) {
+    var sp = subplots[subplotIndex];
+    var srcList = role === 'x' ? sp.xTags : sp.yTags;
+    var item = srcList.splice(tagIndex, 1)[0];
+    var newRole = role === 'x' ? 'y' : 'x';
+
+    if (newRole === 'x') {
+        if (sp.xTags.length > 0) sp.yTags.push(sp.xTags[0]);
+        sp.xTags = [item];
+    } else {
+        var exists = sp.yTags.some(function(t) { return t.topic === item.topic && t.field === item.field; });
+        if (!exists) sp.yTags.push(item);
+    }
+
+    autoFillLabels(subplotIndex);
+    renderSubplotPanel();
+    sendAssignmentsToMatlab();
+}
+
+// ============================================================
+// Custom mouse-event drag system
+// ============================================================
+function beginDragWatch(e, info, type) {
+    dragInfo = info;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragActivated = false;
+    isDragging = true;
+    dragType = type || 'tag';
+
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+}
+
+function onDragMove(e) {
+    if (!isDragging) return;
+
+    var dx = e.clientX - dragStartX;
+    var dy = e.clientY - dragStartY;
+
+    if (!dragActivated) {
+        if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+        dragActivated = true;
+        var ghost = document.getElementById('drag-ghost');
+        if (dragType === 'subplot') {
+            ghost.textContent = 'Subplot ' + (dragInfo.srcSubplotIndex + 1);
+            ghost.className = 'subplot-ghost';
+        } else {
+            ghost.textContent = dragInfo.displayName;
+            ghost.className = '';
+        }
+        ghost.style.display = 'block';
+    }
+
+    var ghost = document.getElementById('drag-ghost');
+    ghost.style.left = (e.clientX + 12) + 'px';
+    ghost.style.top = (e.clientY - 10) + 'px';
+
+    updateHighlight(e.clientX, e.clientY);
+}
+
+function onDragEnd(e) {
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragEnd);
+
+    document.getElementById('drag-ghost').style.display = 'none';
+
+    if (currentHighlight) {
+        currentHighlight.classList.remove('drag-over');
+        currentHighlight.classList.remove('swap-target');
+    }
+
+    if (!isDragging || !dragActivated || !dragInfo) {
+        isDragging = false;
+        dragInfo = null;
+        currentHighlight = null;
+        return;
+    }
+
+    if (dragType === 'subplot') {
+        var targetZone = getSubplotZoneAt(e.clientX, e.clientY);
+        if (targetZone) {
+            var targetIdx = parseInt(targetZone.dataset.subplotIndex, 10);
+            if (targetIdx !== dragInfo.srcSubplotIndex) {
+                swapSubplots(dragInfo.srcSubplotIndex, targetIdx);
+            }
+        }
+    } else {
+        var target = getDropTargetAt(e.clientX, e.clientY);
+        if (target) {
+            performDrop(target, dragInfo);
+        }
+    }
+
+    isDragging = false;
+    dragInfo = null;
+    dragActivated = false;
+    currentHighlight = null;
+}
+
+function updateHighlight(cx, cy) {
+    var el;
+    if (dragType === 'subplot') {
+        el = getSubplotZoneAt(cx, cy);
+        if (currentHighlight && currentHighlight !== el) currentHighlight.classList.remove('swap-target');
+        if (el) el.classList.add('swap-target');
+    } else {
+        el = getDropTargetAt(cx, cy);
+        if (currentHighlight && currentHighlight !== el) {
+            currentHighlight.classList.remove('drag-over');
+            currentHighlight.classList.remove('swap-target');
+        }
+        if (el) el.classList.add('drag-over');
+    }
+    currentHighlight = el;
+}
+
+function getDropTargetAt(cx, cy) {
+    var ghost = document.getElementById('drag-ghost');
+    var old = ghost.style.display;
+    ghost.style.display = 'none';
+    var el = document.elementFromPoint(cx, cy);
+    ghost.style.display = old;
+    while (el && !el.classList.contains('drop-target')) el = el.parentElement;
+    return el;
+}
+
+function getSubplotZoneAt(cx, cy) {
+    var ghost = document.getElementById('drag-ghost');
+    var old = ghost.style.display;
+    ghost.style.display = 'none';
+    var el = document.elementFromPoint(cx, cy);
+    ghost.style.display = old;
+    while (el && !el.classList.contains('subplot-zone')) el = el.parentElement;
+    return el;
+}
+
+function performDrop(target, info) {
+    var subplotIndex = parseInt(target.dataset.subplot, 10);
+    var role = target.dataset.role;
+    var sp = subplots[subplotIndex];
+
+    var tagData = {
+        topic: info.topic,
+        field: info.field,
+        displayName: info.displayName,
+        unit: info.unit
+    };
+
+    if (info.source === 'zone') {
+        var srcSp = subplots[info.srcSubplot];
+        var srcList = info.srcRole === 'x' ? srcSp.xTags : srcSp.yTags;
+        srcList.splice(info.srcIndex, 1);
+    }
+
+    if (isSpecialField(tagData.field)) {
+        // Special fields take over the entire subplot
+        sp.xTags = [];
+        sp.yTags = [tagData];
+    } else if (role === 'x') {
+        sp.xTags = [tagData];
+    } else {
+        var exists = sp.yTags.some(function(t) { return t.topic === tagData.topic && t.field === tagData.field; });
+        if (!exists) sp.yTags.push(tagData);
+    }
+
+    autoFillLabels(subplotIndex);
+    renderSubplotPanel();
+    sendAssignmentsToMatlab();
+}
+</script>
+</body>
+</html>
