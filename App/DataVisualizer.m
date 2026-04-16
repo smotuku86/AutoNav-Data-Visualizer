@@ -948,24 +948,12 @@ classdef DataVisualizer < handle
 
             signal = signal - mean(signal); % Remove DC
 
-            % Welch's method: average overlapping windowed segments
-            segLen = min(256, N);         % segment length
-            overlap = floor(segLen / 2);  % 50% overlap
-            w = hanning(segLen);
-            step = segLen - overlap;
-            nSegs = floor((N - overlap) / step);
-            P1 = zeros(floor(segLen/2)+1, 1);
-            for s = 1:nSegs
-                idx = (1:segLen) + (s-1)*step;
-                seg = signal(idx) .* w;
-                Yseg = fft(seg);
-                P2seg = abs(Yseg / segLen);
-                P1seg = P2seg(1:floor(segLen/2)+1);
-                P1seg(2:end-1) = 2 * P1seg(2:end-1);
-                P1 = P1 + P1seg;
-            end
-            P1 = P1 / nSegs;
-            f = fs * (0:floor(segLen/2)) / segLen;
+            % Full-length FFT for maximum frequency resolution
+            Y = fft(signal);
+            P2 = abs(Y / N);
+            P1 = P2(1:floor(N/2)+1);
+            P1(2:end-1) = 2 * P1(2:end-1);
+            f = fs * (0:floor(N/2)) / N;
 
             plot(ax, f, P1, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.2);
             grid(ax, 'on');
