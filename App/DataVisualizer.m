@@ -164,6 +164,8 @@ classdef DataVisualizer < handle
                 return;
             end
 
+            app.UIFigure.Name = ['Data Visualizer - ' file];
+
             % Compute derived velocity fields as synthetic topics
             if isfield(app.LogData, 'odom')
                 raw = computeOdomVelocity(app.LogData.odom);
@@ -235,6 +237,13 @@ classdef DataVisualizer < handle
                         'displayName', 'IMU Plot Special', ...
                         'unit', '');
                     fields{end+1} = entry; %#ok<AGROW>
+
+                    % Compute acceleration magnitude if all components exist
+                    imuData = app.LogData.zed_zed_node_imu_data;
+                    if isfield(imuData,'accel_x') && isfield(imuData,'accel_y') && isfield(imuData,'accel_z')
+                        app.LogData.zed_zed_node_imu_data.accel_mag = sqrt( ...
+                            imuData.accel_x.^2 + imuData.accel_y.^2 + imuData.accel_z.^2);
+                    end
                 end
 
                 % Odom: emit a special plot tag, then also the individual fields
@@ -932,14 +941,31 @@ classdef DataVisualizer < handle
             N = numel(signal);
             if N < 4, return; end
 
+            % Resample to uniform time grid (ROS2 timestamps are non-uniform)
             fs = 1 / mean(diff(t));
+            tUniform = linspace(t(1), t(end), N)';
+            signal = interp1(t, signal, tUniform, 'linear');
+
             signal = signal - mean(signal); % Remove DC
 
-            Y = fft(signal);
-            P2 = abs(Y / N);
-            P1 = P2(1:floor(N/2)+1);
-            P1(2:end-1) = 2 * P1(2:end-1);
-            f = fs * (0:floor(N/2)) / N;
+            % Welch's method: average overlapping windowed segments
+            segLen = min(256, N);         % segment length
+            overlap = floor(segLen / 2);  % 50% overlap
+            w = hanning(segLen);
+            step = segLen - overlap;
+            nSegs = floor((N - overlap) / step);
+            P1 = zeros(floor(segLen/2)+1, 1);
+            for s = 1:nSegs
+                idx = (1:segLen) + (s-1)*step;
+                seg = signal(idx) .* w;
+                Yseg = fft(seg);
+                P2seg = abs(Yseg / segLen);
+                P1seg = P2seg(1:floor(segLen/2)+1);
+                P1seg(2:end-1) = 2 * P1seg(2:end-1);
+                P1 = P1 + P1seg;
+            end
+            P1 = P1 / nSegs;
+            f = fs * (0:floor(segLen/2)) / segLen;
 
             plot(ax, f, P1, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.2);
             grid(ax, 'on');
@@ -974,7 +1000,11 @@ classdef DataVisualizer < handle
             N = numel(signal);
             if N < 4, return; end
 
+            % Resample to uniform time grid (ROS2 timestamps are non-uniform)
             fs = 1 / mean(diff(t));
+            tUniform = linspace(t(1), t(end), N)';
+            signal = interp1(t, signal, tUniform, 'linear');
+
             nyq = fs / 2;
 
             % Clamp cutoff frequencies
@@ -988,12 +1018,12 @@ classdef DataVisualizer < handle
             legendEntries = {};
 
             if showOriginal
-                h1 = plot(ax, t, signal, '-', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.8);
+                h1 = plot(ax, tUniform, signal, '-', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.8);
                 plotHandles(end+1) = h1;
                 legendEntries{end+1} = 'Original';
             end
 
-            h2 = plot(ax, t, filtered, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.5);
+            h2 = plot(ax, tUniform, filtered, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.5);
             plotHandles(end+1) = h2;
 
             % Build filter description for legend
@@ -1160,6 +1190,7 @@ function m = buildDisplayNameMap()
     m('zed_zed_node_imu_data.orient_x') = 'IMU Orient X';
     m('zed_zed_node_imu_data.orient_y') = 'IMU Orient Y';
     m('zed_zed_node_imu_data.orient_z') = 'IMU Orient Z';
+    m('zed_zed_node_imu_data.accel_mag') = 'IMU Accel Magnitude';
 
     % GPS (individual fields, in case needed elsewhere)
     m('gps_fix.latitude')  = 'GPS Latitude';

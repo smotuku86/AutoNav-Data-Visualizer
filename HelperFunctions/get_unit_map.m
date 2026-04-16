@@ -28,6 +28,7 @@ function unitMap = get_unit_map()
     unitMap('zed_zed_node_imu_data.orient_x') = 'rad';
     unitMap('zed_zed_node_imu_data.orient_y') = 'rad';
     unitMap('zed_zed_node_imu_data.orient_z') = 'rad';
+    unitMap('zed_zed_node_imu_data.accel_mag') = 'm/s^2';
 
     % Commanded velocity
     unitMap('cmd_vel.linear_x')  = 'm/s';
