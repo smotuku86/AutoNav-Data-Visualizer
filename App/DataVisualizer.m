@@ -107,7 +107,8 @@ classdef DataVisualizer < handle
                 bannerH = 26;
                 app.WarningBar = uilabel(app.UIFigure, ...
                     'Text', ['  \x26A0 Signal Processing Toolbox not installed — ' ...
-                             'filtered velocity will be unavailable.  ' ...
+                             'filtered velocity unavailable, Butterworth filters ' ...
+                             'replaced by FFT-based fallback.  ' ...
                              'Install via Home > Add-Ons > Get Add-Ons.'], ...
                     'Position', [0 figH-50-bannerH figW bannerH], ...
                     'BackgroundColor', [1 0.93 0.6], ...
@@ -261,6 +262,18 @@ classdef DataVisualizer < handle
                 end
             end
 
+            % Append transform entries (FFT and Filter)
+            fields{end+1} = struct( ...
+                'topic', '__transform__', ...
+                'field', '__fft__', ...
+                'displayName', 'FFT', ...
+                'unit', '');
+            fields{end+1} = struct( ...
+                'topic', '__transform__', ...
+                'field', '__filter__', ...
+                'displayName', 'Filter', ...
+                'unit', '');
+
         end
 
         % ==============================================================
@@ -401,6 +414,45 @@ classdef DataVisualizer < handle
                         if isfield(sp, 'zLabel'), spLabels.zLabel = sp.zLabel; end
                         plotIMUInSubplot(app, rows, cols, k, spLabels);
                     end
+                    continue;
+                end
+
+                % --- FFT transform ---
+                if hasSpecialTag(xTags, yTags, '__fft__')
+                    spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
+                    if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
+                    if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
+                    if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
+                    ax = subplot(rows, cols, k, 'Parent', app.PlotFigure);
+                    plotFFTInSubplot(app, ax, xTags, spLabels);
+                    continue;
+                end
+
+                % --- Filter transform ---
+                if hasSpecialTag(xTags, yTags, '__filter__')
+                    spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
+                    if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
+                    if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
+                    if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
+                    filterType = 'lowpass';
+                    cutoffFreq = 5;
+                    cutoffFreqHigh = 50;
+                    showOriginal = true;
+                    if isfield(sp, 'filterType') && ~isempty(sp.filterType)
+                        filterType = sp.filterType;
+                    end
+                    if isfield(sp, 'cutoffFreq') && ~isempty(sp.cutoffFreq)
+                        cutoffFreq = double(sp.cutoffFreq);
+                    end
+                    if isfield(sp, 'cutoffFreqHigh') && ~isempty(sp.cutoffFreqHigh)
+                        cutoffFreqHigh = double(sp.cutoffFreqHigh);
+                    end
+                    if isfield(sp, 'showOriginal') && ~isempty(sp.showOriginal)
+                        showOriginal = logical(sp.showOriginal);
+                    end
+                    ax = subplot(rows, cols, k, 'Parent', app.PlotFigure);
+                    plotFilterInSubplot(app, ax, xTags, spLabels, ...
+                        filterType, cutoffFreq, cutoffFreqHigh, showOriginal);
                     continue;
                 end
 
@@ -867,6 +919,112 @@ classdef DataVisualizer < handle
         end
 
         % ==============================================================
+        % Plot FFT in a subplot
+        % ==============================================================
+        function plotFFTInSubplot(app, ax, xTags, spLabels)
+            if isempty(xTags), return; end
+            sigTag = getTagStruct(xTags, 1);
+            if ~isfield(app.LogData, sigTag.topic), return; end
+            topicData = app.LogData.(sigTag.topic);
+            signal = topicData.(sigTag.field);
+            t = topicData.time;
+
+            N = numel(signal);
+            if N < 4, return; end
+
+            fs = 1 / mean(diff(t));
+            signal = signal - mean(signal); % Remove DC
+
+            Y = fft(signal);
+            P2 = abs(Y / N);
+            P1 = P2(1:floor(N/2)+1);
+            P1(2:end-1) = 2 * P1(2:end-1);
+            f = fs * (0:floor(N/2)) / N;
+
+            plot(ax, f, P1, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.2);
+            grid(ax, 'on');
+
+            if app.ShowLabels
+                if ~isempty(spLabels.title)
+                    title(ax, spLabels.title, 'Interpreter', 'none');
+                end
+                if ~isempty(spLabels.xLabel)
+                    xlabel(ax, spLabels.xLabel, 'Interpreter', 'none');
+                end
+                if ~isempty(spLabels.yLabel)
+                    ylabel(ax, spLabels.yLabel, 'Interpreter', 'none');
+                end
+            end
+
+            sigName = lookupDisplayName(app, sigTag.topic, sigTag.field);
+            legend(ax, {['FFT of ' sigName]}, 'Interpreter', 'none', 'Location', 'best');
+        end
+
+        % ==============================================================
+        % Plot filtered signal in a subplot
+        % ==============================================================
+        function plotFilterInSubplot(app, ax, xTags, spLabels, filterType, cutoffFreq, cutoffFreqHigh, showOriginal)
+            if isempty(xTags), return; end
+            sigTag = getTagStruct(xTags, 1);
+            if ~isfield(app.LogData, sigTag.topic), return; end
+            topicData = app.LogData.(sigTag.topic);
+            signal = topicData.(sigTag.field);
+            t = topicData.time;
+
+            N = numel(signal);
+            if N < 4, return; end
+
+            fs = 1 / mean(diff(t));
+            nyq = fs / 2;
+
+            % Clamp cutoff frequencies
+            Wn = min(max(cutoffFreq, 0.1), nyq - 0.1);
+            WnHigh = min(max(cutoffFreqHigh, 0.1), nyq - 0.1);
+
+            filtered = applyFilter(signal, filterType, Wn, WnHigh, fs);
+
+            hold(ax, 'on');
+            plotHandles = [];
+            legendEntries = {};
+
+            if showOriginal
+                h1 = plot(ax, t, signal, '-', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.8);
+                plotHandles(end+1) = h1;
+                legendEntries{end+1} = 'Original';
+            end
+
+            h2 = plot(ax, t, filtered, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.5);
+            plotHandles(end+1) = h2;
+
+            % Build filter description for legend
+            if strcmp(filterType, 'bandpass')
+                desc = sprintf('Band Pass (%.1f–%.1f Hz)', cutoffFreq, cutoffFreqHigh);
+            elseif strcmp(filterType, 'highpass')
+                desc = sprintf('High Pass (fc=%.1f Hz)', cutoffFreq);
+            else
+                desc = sprintf('Low Pass (fc=%.1f Hz)', cutoffFreq);
+            end
+            legendEntries{end+1} = desc;
+
+            grid(ax, 'on');
+            hold(ax, 'off');
+
+            if app.ShowLabels
+                if ~isempty(spLabels.title)
+                    title(ax, spLabels.title, 'Interpreter', 'none');
+                end
+                if ~isempty(spLabels.xLabel)
+                    xlabel(ax, spLabels.xLabel, 'Interpreter', 'none');
+                end
+                if ~isempty(spLabels.yLabel)
+                    ylabel(ax, spLabels.yLabel, 'Interpreter', 'none');
+                end
+            end
+
+            legend(ax, plotHandles, legendEntries, 'Interpreter', 'none', 'Location', 'best');
+        end
+
+        % ==============================================================
         % Clear button
         % ==============================================================
         function ClearButtonPushed(app)
@@ -1071,4 +1229,62 @@ function rgb = hex2rgb(hexStr)
 %HEX2RGB Convert '#RRGGBB' hex string to [r g b] in 0-1 range.
     hexStr = strrep(hexStr, '#', '');
     rgb = [hex2dec(hexStr(1:2)), hex2dec(hexStr(3:4)), hex2dec(hexStr(5:6))] / 255;
+end
+
+function filtered = applyFilter(signal, filterType, Wn, WnHigh, fs)
+%APPLYFILTER Apply a digital filter to a signal.
+%   Uses Signal Processing Toolbox (butter + filtfilt) if available,
+%   otherwise falls back to an FFT-based frequency-domain filter with
+%   Gaussian-tapered edges for zero-phase filtering without ringing.
+    nyq = fs / 2;
+
+    if license('test', 'Signal_Toolbox')
+        % --- Toolbox path: 4th-order Butterworth + zero-phase filtfilt ---
+        WnNorm = Wn / nyq;
+        WnHighNorm = WnHigh / nyq;
+        % Clamp to valid range (0, 1)
+        WnNorm = min(max(WnNorm, 0.001), 0.999);
+        WnHighNorm = min(max(WnHighNorm, 0.001), 0.999);
+
+        if strcmp(filterType, 'bandpass')
+            if WnNorm >= WnHighNorm
+                WnHighNorm = min(WnNorm + 0.01, 0.999);
+            end
+            [b, a] = butter(4, [WnNorm WnHighNorm], 'bandpass');
+        elseif strcmp(filterType, 'highpass')
+            [b, a] = butter(4, WnNorm, 'high');
+        else
+            [b, a] = butter(4, WnNorm, 'low');
+        end
+        filtered = filtfilt(b, a, signal);
+    else
+        % --- Fallback: FFT-based frequency-domain filter ---
+        N = numel(signal);
+        F = fft(signal);
+        freqs = (0:N-1)' * fs / N;
+
+        % Build a frequency-domain mask with Gaussian-tapered edges
+        % to reduce Gibbs ringing.  Transition bandwidth = 10% of cutoff.
+        sigma = max(Wn * 0.1, 0.5);  % transition width in Hz
+
+        if strcmp(filterType, 'lowpass')
+            mask = exp(-0.5 * max(0, freqs - Wn).^2 / sigma^2);
+        elseif strcmp(filterType, 'highpass')
+            mask = 1 - exp(-0.5 * max(0, Wn - freqs).^2 / sigma^2);
+        else % bandpass
+            sigmaLo = max(Wn * 0.1, 0.5);
+            sigmaHi = max(WnHigh * 0.1, 0.5);
+            maskLo = 1 - exp(-0.5 * max(0, Wn - freqs).^2 / sigmaLo^2);
+            maskHi = exp(-0.5 * max(0, freqs - WnHigh).^2 / sigmaHi^2);
+            mask = maskLo .* maskHi;
+        end
+
+        % Mirror mask for negative frequencies (make it symmetric)
+        if N > 1
+            mask(end:-1:ceil(N/2)+1) = mask(2:floor(N/2)+1);
+        end
+
+        F = F .* mask;
+        filtered = real(ifft(F));
+    end
 end

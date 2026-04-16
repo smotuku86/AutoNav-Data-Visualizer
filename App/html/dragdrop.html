@@ -275,6 +275,60 @@ body {
     border: 1px solid #82c991;
     font-weight: 600;
 }
+.tag.transform-tag {
+    background: #ffe0b2;
+    color: #e65100;
+    border: 1px solid #ffb74d;
+    font-weight: 600;
+}
+.tag.transform-tag:hover {
+    background: #ffcc80;
+}
+.tag.transform-dropped {
+    background: #ffe0b2;
+    color: #e65100;
+    border: 1px solid #ffb74d;
+    font-weight: 600;
+}
+
+/* ---- Filter controls row ---- */
+.filter-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    margin-bottom: 2px;
+    font-size: 11px;
+    color: #555;
+    flex-wrap: wrap;
+}
+.filter-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+}
+.filter-controls select,
+.filter-controls input[type="number"] {
+    padding: 1px 4px;
+    font-size: 11px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fafafa;
+    color: #333;
+    outline: none;
+}
+.filter-controls select:focus,
+.filter-controls input[type="number"]:focus {
+    border-color: #ffb74d;
+}
+.filter-controls input[type="number"] {
+    width: 55px;
+}
+.filter-controls input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
 .tag .remove-btn {
     margin-left: 4px;
     cursor: pointer;
@@ -545,13 +599,34 @@ function isSpecialField(field) {
     return field && field.indexOf('__') === 0;
 }
 
+function isTransformField(field) {
+    return field === '__fft__' || field === '__filter__';
+}
+
+function subplotHasTransform(index) {
+    var sp = subplots[index];
+    for (var i = 0; i < sp.yTags.length; i++) {
+        if (isTransformField(sp.yTags[i].field)) return true;
+    }
+    return false;
+}
+
+function getTransformType(index) {
+    var sp = subplots[index];
+    for (var i = 0; i < sp.yTags.length; i++) {
+        if (sp.yTags[i].field === '__fft__') return 'fft';
+        if (sp.yTags[i].field === '__filter__') return 'filter';
+    }
+    return null;
+}
+
 function subplotHasSpecial(index) {
     var sp = subplots[index];
     for (var i = 0; i < sp.yTags.length; i++) {
-        if (isSpecialField(sp.yTags[i].field)) return true;
+        if (isSpecialField(sp.yTags[i].field) && !isTransformField(sp.yTags[i].field)) return true;
     }
     for (var i = 0; i < sp.xTags.length; i++) {
-        if (isSpecialField(sp.xTags[i].field)) return true;
+        if (isSpecialField(sp.xTags[i].field) && !isTransformField(sp.xTags[i].field)) return true;
     }
     return false;
 }
@@ -630,7 +705,11 @@ function sendAssignmentsToMatlab() {
                 scatter: sp.scatter,
                 fitDegree: sp.fitDegree,
                 fitColor: sp.fitColor,
-                speedUnit: sp.speedUnit
+                speedUnit: sp.speedUnit,
+                filterType: sp.filterType,
+                cutoffFreq: sp.cutoffFreq,
+                cutoffFreqHigh: sp.cutoffFreqHigh,
+                showOriginal: sp.showOriginal
             };
         })
     };
@@ -643,7 +722,7 @@ function sendAssignmentsToMatlab() {
 // Subplot management
 // ============================================================
 function makeEmptySubplot() {
-    return {xTags: [], yTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000', speedUnit: 'mph'};
+    return {xTags: [], yTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000', speedUnit: 'mph', filterType: 'lowpass', cutoffFreq: 5, cutoffFreqHigh: 50, showOriginal: true};
 }
 
 function initSubplots() {
@@ -672,6 +751,28 @@ function swapSubplots(a, b) {
 // ============================================================
 function autoFillLabels(index) {
     var sp = subplots[index];
+
+    // Transform field labels (FFT / Filter)
+    if (subplotHasTransform(index)) {
+        var transformType = getTransformType(index);
+        // Get signal name from X tags (signal input)
+        var sigName = '';
+        var sigUnit = '';
+        if (sp.xTags.length > 0) {
+            sigName = sp.xTags[0].displayName || prettyField(sp.xTags[0].field);
+            sigUnit = sp.xTags[0].unit || '-';
+        }
+        if (transformType === 'fft') {
+            sp.title = sigName ? ('FFT of ' + sigName) : 'FFT';
+            sp.xLabel = 'Frequency [Hz]';
+            sp.yLabel = 'Magnitude';
+        } else if (transformType === 'filter') {
+            sp.title = sigName ? ('Filtered ' + sigName) : 'Filtered Signal';
+            sp.xLabel = 'Time [s]';
+            sp.yLabel = sigName ? (sigName + ' [' + sigUnit + ']') : '';
+        }
+        return;
+    }
 
     // Special field labels
     if (subplotHasSpecial(index)) {
@@ -796,12 +897,29 @@ function renderFieldPanel() {
     // Build full section list: configured + any remaining topics
     var allSections = sectionConfig.slice();
     Object.keys(topicFields).sort().forEach(function(t) {
-        if (!assigned[t]) {
+        if (!assigned[t] && t !== '__transform__') {
             allSections.push({name: t.toUpperCase().replace(/_/g, ' '), groups: [[t]]});
         }
     });
 
+    // --- TRANSFORMATIONS section (orange bubbles, rendered first) ---
+    var transformFields = fields.filter(function(f) { return isTransformField(f.field); });
     var renderedCount = 0;
+    if (transformFields.length > 0) {
+        var label = document.createElement('div');
+        label.className = 'section-label';
+        label.textContent = 'TRANSFORMATIONS';
+        container.appendChild(label);
+
+        var tagsDiv = document.createElement('div');
+        tagsDiv.className = 'field-tags';
+        transformFields.forEach(function(f) {
+            tagsDiv.appendChild(createSourceTag(f));
+        });
+        container.appendChild(tagsDiv);
+        renderedCount++;
+    }
+
     allSections.forEach(function(section) {
         // Skip sections with no data
         var hasData = section.groups.some(function(g) {
@@ -850,13 +968,15 @@ function renderFieldPanel() {
 
         renderedCount++;
     });
+
 }
 
 function createSourceTag(fieldInfo) {
     var tag = document.createElement('span');
-    // Special tags and time fields get green styling
-    var isGreen = isSpecialField(fieldInfo.field) || fieldInfo.field === 'time';
-    tag.className = isGreen ? 'tag special-tag' : 'tag source-tag';
+    // Transform fields get orange, special/time get green, rest get gray
+    var isTransform = isTransformField(fieldInfo.field);
+    var isGreen = !isTransform && (isSpecialField(fieldInfo.field) || fieldInfo.field === 'time');
+    tag.className = isTransform ? 'tag transform-tag' : (isGreen ? 'tag special-tag' : 'tag source-tag');
     tag.textContent = fieldInfo.displayName;
     tag.title = fieldInfo.topic + '.' + fieldInfo.field +
                 (fieldInfo.unit ? ' [' + fieldInfo.unit + ']' : '');
@@ -928,8 +1048,18 @@ function createSubplotZone(index) {
     zone.appendChild(header);
 
     var isSpecial = subplotHasSpecial(index);
+    var isTransform = subplotHasTransform(index);
 
-    if (isSpecial) {
+    if (isTransform) {
+        // Transform layout: Y row (Transform:), X row (Signal:), filter controls, labels
+        zone.appendChild(createDropRow('Transform', 'y-zone', index, 'y'));
+        zone.appendChild(createDropRow('Signal', 'x-zone', index, 'x'));
+
+        var transformType = getTransformType(index);
+        if (transformType === 'filter') {
+            zone.appendChild(createFilterControls(index));
+        }
+    } else if (isSpecial) {
         zone.appendChild(createSpecialRow(index));
     } else {
         zone.appendChild(createDropRow('Y', 'y-zone', index, 'y'));
@@ -1090,6 +1220,10 @@ function createDropRow(label, zoneClass, subplotIndex, role) {
     var rowLabel = document.createElement('div');
     rowLabel.className = 'drop-row-label';
     rowLabel.textContent = label + ':';
+    // Widen label for longer text like "Transform:" and "Signal:"
+    if (label.length > 2) {
+        rowLabel.style.width = 'auto';
+    }
     row.appendChild(rowLabel);
 
     var target = document.createElement('div');
@@ -1097,11 +1231,18 @@ function createDropRow(label, zoneClass, subplotIndex, role) {
     target.dataset.subplot = String(subplotIndex);
     target.dataset.role = role;
 
+    var isXform = subplotHasTransform(subplotIndex);
     var tags = role === 'x' ? subplots[subplotIndex].xTags : subplots[subplotIndex].yTags;
     if (tags.length === 0) {
         var hint = document.createElement('span');
         hint.className = 'empty-hint';
-        hint.textContent = role === 'x' ? 'Drop X field here' : 'Drop Y field(s) here';
+        if (isXform && role === 'y') {
+            hint.textContent = 'Drop FFT or Filter here';
+        } else if (isXform && role === 'x') {
+            hint.textContent = 'Drop signal field here';
+        } else {
+            hint.textContent = role === 'x' ? 'Drop X field here' : 'Drop Y field(s) here';
+        }
         target.appendChild(hint);
     } else {
         tags.forEach(function(t, tagIdx) {
@@ -1187,12 +1328,101 @@ function createSpecialRow(subplotIndex) {
     return row;
 }
 
+function createFilterControls(index) {
+    var row = document.createElement('div');
+    row.className = 'filter-controls';
+
+    // Filter type dropdown
+    var typeLabel = document.createElement('label');
+    typeLabel.appendChild(document.createTextNode('Type: '));
+    var typeSelect = document.createElement('select');
+    var typeOpts = [
+        {value: 'lowpass', text: 'Low Pass'},
+        {value: 'highpass', text: 'High Pass'},
+        {value: 'bandpass', text: 'Band Pass'}
+    ];
+    typeOpts.forEach(function(opt) {
+        var o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.text;
+        if (opt.value === subplots[index].filterType) o.selected = true;
+        typeSelect.appendChild(o);
+    });
+    typeSelect.addEventListener('change', function() {
+        subplots[index].filterType = typeSelect.value;
+        renderSubplotPanel();
+        sendAssignmentsToMatlab();
+    });
+    typeSelect.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    typeLabel.appendChild(typeSelect);
+    row.appendChild(typeLabel);
+
+    // Cutoff frequency input
+    var freqLabel = document.createElement('label');
+    freqLabel.appendChild(document.createTextNode('fc: '));
+    var freqInput = document.createElement('input');
+    freqInput.type = 'number';
+    freqInput.min = '0.1';
+    freqInput.step = '0.5';
+    freqInput.value = subplots[index].cutoffFreq;
+    freqInput.addEventListener('change', function() {
+        subplots[index].cutoffFreq = parseFloat(freqInput.value) || 5;
+        sendAssignmentsToMatlab();
+    });
+    freqInput.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    freqLabel.appendChild(freqInput);
+    freqLabel.appendChild(document.createTextNode(' Hz'));
+    row.appendChild(freqLabel);
+
+    // Second cutoff for bandpass
+    if (subplots[index].filterType === 'bandpass') {
+        var freqHighLabel = document.createElement('label');
+        freqHighLabel.appendChild(document.createTextNode('to '));
+        var freqHighInput = document.createElement('input');
+        freqHighInput.type = 'number';
+        freqHighInput.min = '0.1';
+        freqHighInput.step = '0.5';
+        freqHighInput.value = subplots[index].cutoffFreqHigh;
+        freqHighInput.addEventListener('change', function() {
+            subplots[index].cutoffFreqHigh = parseFloat(freqHighInput.value) || 50;
+            sendAssignmentsToMatlab();
+        });
+        freqHighInput.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        freqHighLabel.appendChild(freqHighInput);
+        freqHighLabel.appendChild(document.createTextNode(' Hz'));
+        row.appendChild(freqHighLabel);
+    }
+
+    // Show original checkbox
+    var origLabel = document.createElement('label');
+    var origCb = document.createElement('input');
+    origCb.type = 'checkbox';
+    origCb.checked = subplots[index].showOriginal;
+    origCb.addEventListener('change', function() {
+        subplots[index].showOriginal = origCb.checked;
+        sendAssignmentsToMatlab();
+    });
+    origCb.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    origLabel.appendChild(origCb);
+    origLabel.appendChild(document.createTextNode(' Show original'));
+    row.appendChild(origLabel);
+
+    return row;
+}
+
 function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
     var tag = document.createElement('span');
-    var special = isSpecialField(tagInfo.field);
-    tag.className = special ? 'tag special-dropped' : ('tag ' + (role === 'x' ? 'x-tag' : 'y-tag'));
+    var transform = isTransformField(tagInfo.field);
+    var special = !transform && isSpecialField(tagInfo.field);
+    if (transform) {
+        tag.className = 'tag transform-dropped';
+    } else if (special) {
+        tag.className = 'tag special-dropped';
+    } else {
+        tag.className = 'tag ' + (role === 'x' ? 'x-tag' : 'y-tag');
+    }
 
-    if (!special) {
+    if (!special && !transform) {
         var roleSpan = document.createElement('span');
         roleSpan.className = 'role-indicator';
         roleSpan.textContent = role.toUpperCase();
@@ -1218,8 +1448,8 @@ function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
     });
     tag.appendChild(removeBtn);
 
-    // Click to toggle X/Y (not for special tags)
-    if (!special) {
+    // Click to toggle X/Y (not for special or transform tags)
+    if (!special && !transform) {
         tag.addEventListener('click', function(e) {
             if (e.target === removeBtn || e.target.parentNode === removeBtn) return;
             toggleTagRole(subplotIndex, role, tagIndex);
@@ -1401,10 +1631,19 @@ function performDrop(target, info) {
         srcList.splice(info.srcIndex, 1);
     }
 
-    if (isSpecialField(tagData.field)) {
+    if (isTransformField(tagData.field)) {
+        // Transform fields go to Y only, clear Y but preserve X (signal input)
+        sp.yTags = [tagData];
+    } else if (isSpecialField(tagData.field)) {
         // Special fields take over the entire subplot
         sp.xTags = [];
         sp.yTags = [tagData];
+    } else if (subplotHasTransform(subplotIndex) && role === 'y') {
+        // Block non-transform Y drops when transform is in Y
+        autoFillLabels(subplotIndex);
+        renderSubplotPanel();
+        sendAssignmentsToMatlab();
+        return;
     } else if (role === 'x') {
         sp.xTags = [tagData];
     } else {
