@@ -1,4 +1,5 @@
-function [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(data)
+function [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(data, vehicleParams)
+    if nargin < 2, vehicleParams = 'BowserVehicleParams'; end
     odom_vel = struct();
     imu_vel  = struct();
     enc_vel  = struct();
@@ -19,7 +20,7 @@ function [odom_vel, imu_vel, enc_vel] = FilteredGetVelocities(data)
 
     % --- Compute Encoder Velocity (SG Derivative) ---
     if isfield(data, 'encoders')
-        enc_vel = computeEncoderVelocity_SG(data.encoders);
+        enc_vel = computeEncoderVelocity_SG(data.encoders, vehicleParams);
     else
         warning('No encoder data found.');
     end

@@ -1,4 +1,5 @@
-function [odom_vel, imu_vel, enc_vel] = getVelocities(data)
+function [odom_vel, imu_vel, enc_vel] = getVelocities(data, vehicleParams)
+    if nargin < 2, vehicleParams = 'BowserVehicleParams'; end
     odom_vel = struct();
     imu_vel = struct();
     enc_vel = struct();
@@ -19,7 +20,7 @@ function [odom_vel, imu_vel, enc_vel] = getVelocities(data)
 
     % --- Compute Encoder Velocity ---
     if isfield(data, 'encoders')
-        enc_vel = computeEncoderVelocity(data.encoders);
+        enc_vel = computeEncoderVelocity(data.encoders, vehicleParams);
     else
         warning('No encoder data found.');
     end
@@ -70,8 +71,8 @@ function imu_vel = computeImuVelocity(imu)
 end
 
 %% ================================================================
-function enc_vel = computeEncoderVelocity(encoders)
-    load('BowserVehicleParams.mat', 'EncoderCount2Rev', 'WheelRadius')
+function enc_vel = computeEncoderVelocity(encoders, vehicleParams)
+    load([vehicleParams '.mat'], 'EncoderCount2Rev', 'WheelRadius')
 
     if ~isfield(encoders, 'time') || ...
        ~isfield(encoders, 'encoder_left') || ...

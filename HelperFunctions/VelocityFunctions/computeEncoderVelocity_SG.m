@@ -1,5 +1,6 @@
-function enc_vel = computeEncoderVelocity_SG(encoders)
-    load('BowserVehicleParams.mat', 'EncoderCount2Rev', 'WheelRadius')
+function enc_vel = computeEncoderVelocity_SG(encoders, vehicleParams)
+    if nargin < 2, vehicleParams = 'BowserVehicleParams'; end
+    load([vehicleParams '.mat'], 'EncoderCount2Rev', 'WheelRadius')
 
     if ~isfield(encoders, 'time') || ...
        ~isfield(encoders, 'encoder_left') || ...
