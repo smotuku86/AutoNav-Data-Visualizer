@@ -256,7 +256,7 @@ classdef DataVisualizer < handle
                     fields{end+1} = entry; %#ok<AGROW>
 
                     entry = struct( ...
-                        'topic', 'imu_corrected', ...
+                        'topic', 'zed_zed_node_imu_data', ...
                         'field', '__imu_orient_correct__', ...
                         'displayName', 'IMU Orient Correct Plot Special', ...
                         'unit', '');
@@ -274,26 +274,8 @@ classdef DataVisualizer < handle
                     end
                 end
 
-                % CMD VEL: emit a special plot tag
-                if strcmp(topic, 'cmd_vel')
-                    entry = struct( ...
-                        'topic', 'cmd_vel', ...
-                        'field', '__cmd_vel__', ...
-                        'displayName', 'CMD VEL Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-                end
-
-                % Odom: emit special plot tags, then also the individual fields
+                % Odom: emit a special plot tag, then also the individual fields
                 if strcmp(topic, 'odom')
-                    if isfield(app.LogData, 'gps_fix')
-                        entry = struct( ...
-                            'topic', 'odom', ...
-                            'field', '__odom_gps__', ...
-                            'displayName', 'Odom GPS Aligned Special', ...
-                            'unit', '');
-                        fields{end+1} = entry; %#ok<AGROW>
-                    end
                     entry = struct( ...
                         'topic', 'odom', ...
                         'field', '__odom__', ...
@@ -517,17 +499,6 @@ classdef DataVisualizer < handle
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__odom_gps__')
-                    if isfield(app.LogData, 'odom') && isfield(app.LogData, 'gps_fix')
-                        spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
-                        if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
-                        if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
-                        if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
-                        plotOdomGPSInSubplot(app, rows, cols, k, spLabels);
-                    end
-                    continue;
-                end
-
                 if hasSpecialTag(xTags, yTags, '__electrical__')
                     spLabels = struct('title', '', 'xLabel', '', 'yLabel', '', 'zLabel', '');
                     if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
@@ -545,11 +516,7 @@ classdef DataVisualizer < handle
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
                         if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
                         if isfield(sp, 'zLabel'), spLabels.zLabel = sp.zLabel; end
-                        showGroups = [true true true];
-                        if isfield(sp,'showAccel')  && ~isempty(sp.showAccel),  showGroups(1) = logical(sp.showAccel);  end
-                        if isfield(sp,'showGyro')   && ~isempty(sp.showGyro),   showGroups(2) = logical(sp.showGyro);   end
-                        if isfield(sp,'showOrient') && ~isempty(sp.showOrient),  showGroups(3) = logical(sp.showOrient); end
-                        plotIMUInSubplot(app, rows, cols, k, spLabels, showGroups);
+                        plotIMUInSubplot(app, rows, cols, k, spLabels);
                     end
                     continue;
                 end
@@ -561,22 +528,7 @@ classdef DataVisualizer < handle
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
                         if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
                         if isfield(sp, 'zLabel'), spLabels.zLabel = sp.zLabel; end
-                        showGroups = [true true true];
-                        if isfield(sp,'showAccel')  && ~isempty(sp.showAccel),  showGroups(1) = logical(sp.showAccel);  end
-                        if isfield(sp,'showGyro')   && ~isempty(sp.showGyro),   showGroups(2) = logical(sp.showGyro);   end
-                        if isfield(sp,'showOrient') && ~isempty(sp.showOrient),  showGroups(3) = logical(sp.showOrient); end
-                        plotIMUTransformInSubplot(app, rows, cols, k, spLabels, showGroups);
-                    end
-                    continue;
-                end
-
-                if hasSpecialTag(xTags, yTags, '__cmd_vel__')
-                    if isfield(app.LogData, 'cmd_vel')
-                        spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
-                        if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
-                        if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
-                        if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
-                        plotCmdVelInSubplot(app, rows, cols, k, spLabels);
+                        plotIMUTransformInSubplot(app, rows, cols, k, spLabels);
                     end
                     continue;
                 end
@@ -885,14 +837,14 @@ classdef DataVisualizer < handle
             lon = double(gpsData.longitude(:));
             alt = double(gpsData.altitude(:));
 
-            % Bounding box with fixed 50 m buffer per side
+            % Bounding box with buffer
             minLat = min(lat); maxLat = max(lat);
             minLon = min(lon); maxLon = max(lon);
-            latBuf = 50 / 111320;  % 50 m in degrees latitude
-            meanLat = (minLat + maxLat) / 2;
-            lonBuf = 50 / (111320 * cosd(meanLat));  % 50 m in degrees longitude
-            minLat = minLat - latBuf; maxLat = maxLat + latBuf;
-            minLon = minLon - lonBuf; maxLon = maxLon + lonBuf;
+            buf = 0.005;
+            latSz = max(maxLat - minLat, 0.0005);
+            lonSz = max(maxLon - minLon, 0.0005);
+            minLat = minLat - latSz*buf; maxLat = maxLat + latSz*buf;
+            minLon = minLon - lonSz*buf; maxLon = maxLon + lonSz*buf;
 
             % Clean altitudes
             if any(isnan(alt)), alt = fillmissing(alt, 'linear'); end
@@ -967,150 +919,8 @@ classdef DataVisualizer < handle
         end
 
         % ==============================================================
-        % Plot Odometry rotated to align with GPS North
-        % ==============================================================
-        function plotOdomGPSInSubplot(app, rows, cols, idx, spLabels)
-            odom = app.LogData.odom;
-            gps  = app.LogData.gps_fix;
-
-            x     = odom.pos_x(:);
-            y     = odom.pos_y(:);
-            theta = odom.orient_z(:);
-
-            % --- Compute heading offset between odom and GPS ---
-            % Odom direction: atan2 from first pair with >0.3 m displacement
-            odomDir = 0;
-            foundOdom = false;
-            for i = 2:numel(x)
-                dd = sqrt((x(i) - x(1))^2 + (y(i) - y(1))^2);
-                if dd > 0.3
-                    odomDir = atan2(y(i) - y(1), x(i) - x(1));
-                    foundOdom = true;
-                    break;
-                end
-            end
-
-            % GPS bearing: great-circle from first pair with >3 m displacement
-            lat = gps.latitude(:);
-            lon = gps.longitude(:);
-            gpsDir = 0;
-            foundGPS = false;
-            if numel(lat) >= 2
-                lat1r = deg2rad(lat(1));
-                lon1r = deg2rad(lon(1));
-                for i = 2:numel(lat)
-                    lat2r = deg2rad(lat(i));
-                    lon2r = deg2rad(lon(i));
-                    % Haversine distance
-                    dlat = lat2r - lat1r;
-                    dlon = lon2r - lon1r;
-                    a = sin(dlat/2)^2 + cos(lat1r)*cos(lat2r)*sin(dlon/2)^2;
-                    dist = 2 * 6371000 * asin(sqrt(a));
-                    if dist > 3
-                        % Great-circle bearing (compass: 0=N, CW)
-                        bearing = atan2(sin(lon2r - lon1r)*cos(lat2r), ...
-                            cos(lat1r)*sin(lat2r) - sin(lat1r)*cos(lat2r)*cos(lon2r - lon1r));
-                        % Convert compass bearing to math convention
-                        gpsDir = pi/2 - bearing;
-                        foundGPS = true;
-                        break;
-                    end
-                end
-            end
-
-            % Rotation angle
-            if foundOdom && foundGPS
-                rotAngle = gpsDir - odomDir;
-            else
-                rotAngle = 0;
-            end
-
-            % Apply 2D rotation
-            xRot = x * cos(rotAngle) - y * sin(rotAngle);
-            yRot = x * sin(rotAngle) + y * cos(rotAngle);
-            thetaRot = theta + rotAngle;
-
-            % --- Plot ---
-            ax = subplot(rows, cols, idx, 'Parent', app.PlotFigure);
-            plot(ax, xRot, yRot, 'b-', 'LineWidth', 1.5);
-            hold(ax, 'on');
-            grid(ax, 'on');
-            axis(ax, 'equal');
-
-            if app.ShowLabels
-                if ~isempty(spLabels.xLabel)
-                    xlabel(ax, spLabels.xLabel, 'Interpreter', 'none');
-                else
-                    xlabel(ax, 'East [m]', 'Interpreter', 'none');
-                end
-                if ~isempty(spLabels.yLabel)
-                    ylabel(ax, spLabels.yLabel, 'Interpreter', 'none');
-                else
-                    ylabel(ax, 'North [m]', 'Interpreter', 'none');
-                end
-                if ~isempty(spLabels.title)
-                    title(ax, spLabels.title, 'Interpreter', 'none');
-                else
-                    title(ax, 'Odometry Path (GPS North Aligned)', 'Interpreter', 'none');
-                end
-            end
-
-            % Draw ~20 heading arrows
-            step = max(1, floor(numel(xRot) / 20));
-            arrowScale = 0.1;
-            for i = 1:step:numel(xRot)
-                dx = arrowScale * cos(thetaRot(i));
-                dy = arrowScale * sin(thetaRot(i));
-                quiver(ax, xRot(i), yRot(i), dx, dy, 0, 'r', ...
-                    'LineWidth', 2, 'MaxHeadSize', 2);
-            end
-
-            legend(ax, {'Path', 'Orientation'}, 'Location', 'best');
-            hold(ax, 'off');
-        end
-
-        % ==============================================================
         % Plot Electrical data (V, I, P) as 3 mini-subplots in one slot
         % ==============================================================
-        function plotCmdVelInSubplot(app, rows, cols, idx, spLabels)
-            cv = app.LogData.cmd_vel;
-            t = cv.time;
-
-            ax = subplot(rows, cols, idx, 'Parent', app.PlotFigure);
-
-            yyaxis(ax, 'left');
-            plot(ax, t, cv.linear_x, '-', 'Color', [0 0.447 0.741], 'LineWidth', 1.2);
-            if app.ShowLabels
-                if ~isempty(spLabels.xLabel)
-                    ylabel(ax, spLabels.xLabel, 'Interpreter', 'none');
-                else
-                    ylabel(ax, 'Forward Speed [m/s]', 'Interpreter', 'none');
-                end
-            end
-
-            yyaxis(ax, 'right');
-            plot(ax, t, cv.angular_z, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.2);
-            if app.ShowLabels
-                if ~isempty(spLabels.yLabel)
-                    ylabel(ax, spLabels.yLabel, 'Interpreter', 'none');
-                else
-                    ylabel(ax, 'Turn Rate [rad/s]', 'Interpreter', 'none');
-                end
-            end
-
-            grid(ax, 'on');
-            legend(ax, {'Forward Speed', 'Turn Rate'}, 'Location', 'best');
-
-            if app.ShowLabels
-                xlabel(ax, 'Time [s]', 'Interpreter', 'none');
-                if ~isempty(spLabels.title)
-                    title(ax, spLabels.title, 'Interpreter', 'none');
-                else
-                    title(ax, 'Drive Commands (cmd\_vel)', 'Interpreter', 'none');
-                end
-            end
-        end
-
         function plotElectricalInSubplot(app, rows, cols, idx, spLabels)
             % Grab the subplot position, then replace with a tiled layout
             tempAx = subplot(rows, cols, idx, 'Parent', app.PlotFigure);
@@ -1185,7 +995,7 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot IMU data (Accel, Gyro, Orient) as 3 stacked axes
         % ==============================================================
-        function plotIMUInSubplot(app, rows, cols, idx, spLabels, showGroups)
+        function plotIMUInSubplot(app, rows, cols, idx, spLabels)
             imu = app.LogData.zed_zed_node_imu_data;
             t = imu.time;
 
@@ -1194,25 +1004,18 @@ classdef DataVisualizer < handle
             pos = tempAx.Position;
             delete(tempAx);
 
-            % Filter groups by showGroups toggle
-            allGroupFields = { ...
-                {'accel_x','accel_y','accel_z'}, ...
-                {'gyro_x','gyro_y','gyro_z'}, ...
-                {'orient_x','orient_y','orient_z'}};
-            allDefaultLabels = {'Accel [m/s^2]', 'Gyro [rad/s]', 'Orientation [rad]'};
-            allLabelFields = {'xLabel', 'yLabel', 'zLabel'};
-
-            visIdx = find(showGroups);
-            groupFields = allGroupFields(visIdx);
-            defaultLabels = allDefaultLabels(visIdx);
-            labelFields = allLabelFields(visIdx);
-            n = numel(groupFields);
-
-            if n == 0, return; end
-
             pan = uipanel(app.PlotFigure, 'Units', 'normalized', ...
                 'Position', pos, 'BorderType', 'none', 'BackgroundColor', 'w');
 
+            % Three groups: Accel, Gyro, Orient — each with X/Y/Z
+            groupFields = { ...
+                {'accel_x','accel_y','accel_z'}, ...
+                {'gyro_x','gyro_y','gyro_z'}, ...
+                {'orient_x','orient_y','orient_z'}};
+            defaultLabels = {'Accel [m/s^2]', 'Gyro [rad/s]', 'Orientation [rad]'};
+            n = numel(groupFields);
+
+            labelFields = {'xLabel', 'yLabel', 'zLabel'};
             xyzColors = [0 0.447 0.741; 0.85 0.325 0.098; 0.466 0.674 0.188]; % blue, orange, green
 
             gap = 0.06;
@@ -1260,7 +1063,7 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot corrected IMU data (Accel, Gyro, Orient) as 3 stacked axes
         % ==============================================================
-        function plotIMUTransformInSubplot(app, rows, cols, idx, spLabels, showGroups)
+        function plotIMUTransformInSubplot(app, rows, cols, idx, spLabels)
             imu = app.LogData.imu_corrected;
             t = imu.time;
 
@@ -1276,25 +1079,18 @@ classdef DataVisualizer < handle
             pos = tempAx.Position;
             delete(tempAx);
 
-            % Filter groups by showGroups toggle
-            allGroupFields = { ...
-                {'accel_x','accel_y','accel_z'}, ...
-                {'gyro_x','gyro_y','gyro_z'}, ...
-                {'orient_x','orient_y','orient_z'}};
-            allDefaultLabels = {'Orient Correct Accel [m/s^2]', 'Orient Correct Gyro [rad/s]', 'Orientation [rad]'};
-            allLabelFields = {'xLabel', 'yLabel', 'zLabel'};
-
-            visIdx = find(showGroups);
-            groupFields = allGroupFields(visIdx);
-            defaultLabels = allDefaultLabels(visIdx);
-            labelFields = allLabelFields(visIdx);
-            n = numel(groupFields);
-
-            if n == 0, return; end
-
             pan = uipanel(app.PlotFigure, 'Units', 'normalized', ...
                 'Position', pos, 'BorderType', 'none', 'BackgroundColor', 'w');
 
+            % Three groups: Accel, Gyro, Orient — each with X/Y/Z
+            groupFields = { ...
+                {'accel_x','accel_y','accel_z'}, ...
+                {'gyro_x','gyro_y','gyro_z'}, ...
+                {'orient_x','orient_y','orient_z'}};
+            defaultLabels = {'Orient Correct Accel [m/s^2]', 'Orient Correct Gyro [rad/s]', 'Orientation [rad]'};
+            n = numel(groupFields);
+
+            labelFields = {'xLabel', 'yLabel', 'zLabel'};
             xyzColors = [0 0.447 0.741; 0.85 0.325 0.098; 0.466 0.674 0.188];
 
             gap = 0.06;

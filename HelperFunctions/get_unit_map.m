@@ -29,10 +29,11 @@ function unitMap = get_unit_map()
     unitMap('zed_zed_node_imu_data.orient_y') = 'rad';
     unitMap('zed_zed_node_imu_data.orient_z') = 'rad';
     unitMap('zed_zed_node_imu_data.accel_mag') = 'm/s^2';
+    unitMap('zed_zed_node_imu_data.gyro_mag') = 'rad/s';
 
     % Commanded velocity
     unitMap('cmd_vel.linear_x')  = 'm/s';
-    unitMap('cmd_vel.z_angular') = 'rad/s';
+    unitMap('cmd_vel.angular_z') = 'rad/s';
 
     % Motor speed
     unitMap('motor_speed.value_0') = '-';
@@ -46,6 +47,19 @@ function unitMap = get_unit_map()
     unitMap('gps_fix.latitude')  = 'deg';
     unitMap('gps_fix.longitude') = 'deg';
     unitMap('gps_fix.altitude')  = 'm';
+
+    % IMU Corrected (synthetic topic from transform_imu)
+    unitMap('imu_corrected.accel_x')   = 'm/s^2';
+    unitMap('imu_corrected.accel_y')   = 'm/s^2';
+    unitMap('imu_corrected.accel_z')   = 'm/s^2';
+    unitMap('imu_corrected.gyro_x')    = 'rad/s';
+    unitMap('imu_corrected.gyro_y')    = 'rad/s';
+    unitMap('imu_corrected.gyro_z')    = 'rad/s';
+    unitMap('imu_corrected.orient_x')  = 'rad';
+    unitMap('imu_corrected.orient_y')  = 'rad';
+    unitMap('imu_corrected.orient_z')  = 'rad';
+    unitMap('imu_corrected.accel_mag') = 'm/s^2';
+    unitMap('imu_corrected.gyro_mag')  = 'rad/s';
 
     % Odom Velocity (raw)
     unitMap('odom_velocity.vx')  = 'm/s';

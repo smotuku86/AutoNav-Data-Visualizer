@@ -28,6 +28,7 @@ body {
     grid-template-rows: 1fr;
     align-content: stretch;
     min-height: 0;
+    position: relative;
 }
 .subplot-zone {
     background: #fff;
@@ -37,6 +38,7 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 100px;
+    overflow-y: auto;
     transition: border-color 0.15s, background 0.15s;
 }
 .subplot-zone.swap-target {
@@ -290,6 +292,37 @@ body {
     border: 1px solid #ffb74d;
     font-weight: 600;
 }
+.tag.output-tag {
+    background: #e1d5f0;
+    color: #4a148c;
+    border: 1px solid #b39ddb;
+    font-weight: 600;
+}
+.tag.output-tag:hover {
+    background: #d1c4e9;
+}
+.tag.output-dropped {
+    background: #e1d5f0;
+    color: #4a148c;
+    border: 1px solid #b39ddb;
+    font-weight: 600;
+}
+#connection-lines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+#connection-lines line, #connection-lines path {
+    stroke: red;
+    stroke-dasharray: 6,4;
+    opacity: 0.25;
+    fill: none;
+    stroke-width: 2;
+}
 
 /* ---- Filter controls row ---- */
 .filter-controls {
@@ -465,6 +498,7 @@ body {
     </div>
     <div id="subplot-panel">
         <div id="no-data-msg">Load a CSV file to begin</div>
+        <svg id="connection-lines"></svg>
     </div>
 </div>
 
@@ -590,6 +624,9 @@ document.addEventListener('DOMContentLoaded', function() {
         e.stopPropagation();
         togglePopover();
     });
+    // Re-render connection lines on scroll/resize
+    document.getElementById('subplot-panel').addEventListener('scroll', renderConnectionLines);
+    window.addEventListener('resize', function() { setTimeout(renderConnectionLines, 50); });
 });
 
 // ============================================================
@@ -600,7 +637,34 @@ function isSpecialField(field) {
 }
 
 function isTransformField(field) {
-    return field === '__fft__' || field === '__filter__';
+    return field === '__fft__' || field === '__filter__' || field === '__bode__' || field === '__bode_single__';
+}
+
+function isOutputField(field) {
+    return field === '__fft_output__' || field === '__filter_output__';
+}
+
+function getInputDomain(tag) {
+    if (isOutputField(tag.field) && tag.domain) return tag.domain;
+    return 't';
+}
+
+function getOutputDomain(subplotIndex) {
+    var sp = subplots[subplotIndex];
+    var transformType = getTransformType(subplotIndex);
+    // Determine input domain from signal tags (xTags)
+    var inputDomain = 't';
+    if (sp.xTags.length > 0) {
+        inputDomain = getInputDomain(sp.xTags[0]);
+    }
+    if (transformType === 'fft' || transformType === 'bode_single') {
+        // FFT and Bode flip domain
+        return inputDomain === 't' ? 's' : 't';
+    } else if (transformType === 'filter') {
+        // Filter preserves domain
+        return inputDomain;
+    }
+    return inputDomain;
 }
 
 function subplotHasTransform(index) {
@@ -616,6 +680,8 @@ function getTransformType(index) {
     for (var i = 0; i < sp.yTags.length; i++) {
         if (sp.yTags[i].field === '__fft__') return 'fft';
         if (sp.yTags[i].field === '__filter__') return 'filter';
+        if (sp.yTags[i].field === '__bode__') return 'bode';
+        if (sp.yTags[i].field === '__bode_single__') return 'bode_single';
     }
     return null;
 }
@@ -665,6 +731,9 @@ function handleMatlabMessage(data) {
         initSubplots();
         renderFieldPanel();
         renderSubplotPanel();
+    } else if (data.type === 'fieldsRefresh') {
+        fields = normalizeArray(data.fields);
+        renderFieldPanel();
     } else if (data.type === 'layoutUpdate') {
         layout = normalizeLayout(data.layout);
         updateLayoutButton();
@@ -691,13 +760,22 @@ function normalizeArray(val) {
 }
 
 function sendAssignmentsToMatlab() {
+    function mapTag(t) {
+        var obj = {topic: t.topic, field: t.field, displayName: t.displayName || '', unit: t.unit || ''};
+        if (t.domain !== undefined) obj.domain = t.domain;
+        if (t.sourceSubplot !== undefined) obj.sourceSubplot = t.sourceSubplot + 1; // 1-indexed for MATLAB
+        if (t.sourceSignalTopic !== undefined) obj.sourceSignalTopic = t.sourceSignalTopic;
+        if (t.sourceSignalField !== undefined) obj.sourceSignalField = t.sourceSignalField;
+        return obj;
+    }
     var payload = {
         type: 'assignmentsUpdate',
         subplots: subplots.map(function(sp, i) {
             return {
                 index: i + 1,
-                xTags: sp.xTags.map(function(t) { return {topic: t.topic, field: t.field, displayName: t.displayName || '', unit: t.unit || ''}; }),
-                yTags: sp.yTags.map(function(t) { return {topic: t.topic, field: t.field, displayName: t.displayName || '', unit: t.unit || ''}; }),
+                xTags: sp.xTags.map(mapTag),
+                yTags: sp.yTags.map(mapTag),
+                inputTags: (sp.inputTags || []).map(mapTag),
                 title: sp.title,
                 xLabel: sp.xLabel,
                 yLabel: sp.yLabel,
@@ -709,7 +787,10 @@ function sendAssignmentsToMatlab() {
                 filterType: sp.filterType,
                 cutoffFreq: sp.cutoffFreq,
                 cutoffFreqHigh: sp.cutoffFreqHigh,
-                showOriginal: sp.showOriginal
+                showOriginal: sp.showOriginal,
+                showAccel: sp.showAccel,
+                showGyro: sp.showGyro,
+                showOrient: sp.showOrient
             };
         })
     };
@@ -722,7 +803,7 @@ function sendAssignmentsToMatlab() {
 // Subplot management
 // ============================================================
 function makeEmptySubplot() {
-    return {xTags: [], yTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000', speedUnit: 'mph', filterType: 'lowpass', cutoffFreq: 5, cutoffFreqHigh: 50, showOriginal: true};
+    return {xTags: [], yTags: [], inputTags: [], title: '', xLabel: '', yLabel: '', zLabel: '', scatter: false, fitDegree: 0, fitColor: '#000000', speedUnit: 'mph', filterType: 'lowpass', cutoffFreq: 5, cutoffFreqHigh: 50, showOriginal: true, showAccel: true, showGyro: true, showOrient: true};
 }
 
 function initSubplots() {
@@ -752,7 +833,7 @@ function swapSubplots(a, b) {
 function autoFillLabels(index) {
     var sp = subplots[index];
 
-    // Transform field labels (FFT / Filter)
+    // Transform field labels (FFT / Filter / Bode)
     if (subplotHasTransform(index)) {
         var transformType = getTransformType(index);
         // Get signal name from X tags (signal input)
@@ -770,6 +851,14 @@ function autoFillLabels(index) {
             sp.title = sigName ? ('Filtered ' + sigName) : 'Filtered Signal';
             sp.xLabel = 'Time [s]';
             sp.yLabel = sigName ? (sigName + ' [' + sigUnit + ']') : '';
+        } else if (transformType === 'bode') {
+            sp.title = 'H1 Transfer Function Estimate';
+            sp.xLabel = 'Frequency [Hz]';
+            sp.yLabel = 'Magnitude [dB] / Phase [deg]';
+        } else if (transformType === 'bode_single') {
+            sp.title = sigName ? ('Bode Plot of ' + sigName) : 'Bode Plot';
+            sp.xLabel = 'Frequency [Hz]';
+            sp.yLabel = 'Magnitude [dB] / Phase [deg]';
         }
         return;
     }
@@ -791,6 +880,12 @@ function autoFillLabels(index) {
                 sp.yLabel = 'Y Position [m]';
                 return;
             }
+            if (allTags[i].field === '__odom_gps__') {
+                sp.title = 'Odometry Path (GPS North Aligned)';
+                sp.xLabel = 'East [m]';
+                sp.yLabel = 'North [m]';
+                return;
+            }
             if (allTags[i].field === '__electrical__') {
                 sp.title = 'Electrical Data';
                 sp.xLabel = 'Voltage [V]';
@@ -798,10 +893,23 @@ function autoFillLabels(index) {
                 sp.zLabel = 'Power [W]';
                 return;
             }
+            if (allTags[i].field === '__cmd_vel__') {
+                sp.title = 'Drive Commands (cmd_vel)';
+                sp.xLabel = 'Forward Speed [m/s]';
+                sp.yLabel = 'Turn Rate [rad/s]';
+                return;
+            }
             if (allTags[i].field === '__imu__') {
                 sp.title = 'IMU Data';
-                sp.xLabel = 'Acceleration [m/s\u00b2]';
-                sp.yLabel = 'Gyroscope [rad/s]';
+                sp.xLabel = 'Accel [m/s\u00b2]';
+                sp.yLabel = 'Gyro [rad/s]';
+                sp.zLabel = 'Orientation [rad]';
+                return;
+            }
+            if (allTags[i].field === '__imu_orient_correct__') {
+                sp.title = 'IMU Corrected Data';
+                sp.xLabel = 'Orient Correct Accel [m/s\u00b2]';
+                sp.yLabel = 'Orient Correct Gyro [rad/s]';
                 sp.zLabel = 'Orientation [rad]';
                 return;
             }
@@ -859,6 +967,8 @@ function autoFillLabels(index) {
 // Section definitions: ordered list of {name, groups: [[topics], ...]}
 // Sub-groups within a section are separated by light gray lines.
 // Sections are separated by dark black lines.
+// Group entries are either plain topic strings or {topic, fields} objects
+// for field-level filtering within a topic.
 var sectionConfig = [
     {name: 'GPS',        groups: [['gps_fix']]},
     {name: 'ODOMETRY',   groups: [['odom'], ['odom_velocity'], ['odom_velocity_filtered']]},
@@ -866,8 +976,12 @@ var sectionConfig = [
     {name: 'CMD VEL',    groups: [['cmd_vel']]},
     {name: 'MOTOR',      groups: [['motor_speed']]},
     {name: 'ELECTRICAL', groups: [['electrical', 'electrical_voltage', 'electrical_current', 'electrical_power']]},
-    {name: 'IMU',        groups: [['zed_zed_node_imu_data']]}
-
+    {name: 'IMU',        groups: [
+        [{topic: 'zed_zed_node_imu_data', exclude: ['accel_mag', 'gyro_mag']}],
+        [{topic: 'zed_zed_node_imu_data', fields: ['accel_mag', 'gyro_mag']}],
+        [{topic: 'imu_corrected', exclude: ['accel_mag', 'gyro_mag']}],
+        [{topic: 'imu_corrected', fields: ['accel_mag', 'gyro_mag']}]
+    ]}
 ];
 
 function renderFieldPanel() {
@@ -890,7 +1004,10 @@ function renderFieldPanel() {
     var assigned = {};
     sectionConfig.forEach(function(sec) {
         sec.groups.forEach(function(g) {
-            g.forEach(function(t) { assigned[t] = true; });
+            g.forEach(function(t) {
+                var topicName = (typeof t === 'object' && t.topic) ? t.topic : t;
+                assigned[topicName] = true;
+            });
         });
     });
 
@@ -923,7 +1040,10 @@ function renderFieldPanel() {
     allSections.forEach(function(section) {
         // Skip sections with no data
         var hasData = section.groups.some(function(g) {
-            return g.some(function(t) { return topicFields[t] && topicFields[t].length > 0; });
+            return g.some(function(t) {
+                var topicName = (typeof t === 'object' && t.topic) ? t.topic : t;
+                return topicFields[topicName] && topicFields[topicName].length > 0;
+            });
         });
         if (!hasData) return;
 
@@ -943,7 +1063,10 @@ function renderFieldPanel() {
         // Render sub-groups with light dividers between them
         var groupCount = 0;
         section.groups.forEach(function(topicList) {
-            var subHasData = topicList.some(function(t) { return topicFields[t]; });
+            var subHasData = topicList.some(function(t) {
+                var topicName = (typeof t === 'object' && t.topic) ? t.topic : t;
+                return topicFields[topicName];
+            });
             if (!subHasData) return;
 
             if (groupCount > 0) {
@@ -952,15 +1075,29 @@ function renderFieldPanel() {
                 container.appendChild(lightHr);
             }
 
-            topicList.forEach(function(topic) {
-                if (!topicFields[topic]) return;
+            topicList.forEach(function(entry) {
+                var topicName, fieldFilter, fieldExclude;
+                if (typeof entry === 'object' && entry.topic) {
+                    topicName = entry.topic;
+                    fieldFilter = entry.fields || null;
+                    fieldExclude = entry.exclude || null;
+                } else {
+                    topicName = entry;
+                    fieldFilter = null;
+                    fieldExclude = null;
+                }
+                if (!topicFields[topicName]) return;
                 var tagsDiv = document.createElement('div');
                 tagsDiv.className = 'field-tags';
-                topicFields[topic].forEach(function(f) {
+                topicFields[topicName].forEach(function(f) {
                     if (f.field === 'time') return;
+                    if (fieldFilter && fieldFilter.indexOf(f.field) === -1) return;
+                    if (fieldExclude && fieldExclude.indexOf(f.field) !== -1) return;
                     tagsDiv.appendChild(createSourceTag(f));
                 });
-                container.appendChild(tagsDiv);
+                if (tagsDiv.childNodes.length > 0) {
+                    container.appendChild(tagsDiv);
+                }
             });
 
             groupCount++;
@@ -977,7 +1114,9 @@ function createSourceTag(fieldInfo) {
     var isTransform = isTransformField(fieldInfo.field);
     var isGreen = !isTransform && (isSpecialField(fieldInfo.field) || fieldInfo.field === 'time');
     tag.className = isTransform ? 'tag transform-tag' : (isGreen ? 'tag special-tag' : 'tag source-tag');
-    tag.textContent = fieldInfo.displayName;
+    // Show domain tag on normal data fields (all normal fields are time-domain)
+    var showDomain = !isTransform && !isGreen;
+    tag.textContent = fieldInfo.displayName + (showDomain ? ' [t]' : '');
     tag.title = fieldInfo.topic + '.' + fieldInfo.field +
                 (fieldInfo.unit ? ' [' + fieldInfo.unit + ']' : '');
 
@@ -1015,6 +1154,55 @@ function renderSubplotPanel() {
     for (var i = 0; i < count; i++) {
         panel.appendChild(createSubplotZone(i));
     }
+
+    // Defer connection line rendering to after layout
+    setTimeout(renderConnectionLines, 0);
+}
+
+function renderConnectionLines() {
+    var svg = document.getElementById('connection-lines');
+    if (!svg) return;
+    svg.innerHTML = '';
+
+    var panel = document.getElementById('subplot-panel');
+    var panelRect = panel.getBoundingClientRect();
+    var scrollLeft = panel.scrollLeft;
+    var scrollTop = panel.scrollTop;
+
+    svg.setAttribute('width', panel.scrollWidth);
+    svg.setAttribute('height', panel.scrollHeight);
+
+    // Find all dropped output tags (they have data-output-source and data-output-dest)
+    var destTags = panel.querySelectorAll('[data-output-source][data-output-dest]');
+    for (var i = 0; i < destTags.length; i++) {
+        var destEl = destTags[i];
+        var srcSubplotIdx = destEl.dataset.outputSource;
+
+        // Find the source output row
+        var srcRow = panel.querySelector('[data-output-row="' + srcSubplotIdx + '"]');
+        if (!srcRow) continue;
+
+        // Find the output bubble inside the source row
+        var srcBubble = srcRow.querySelector('.output-tag');
+        if (!srcBubble) continue;
+
+        var srcRect = srcBubble.getBoundingClientRect();
+        var destRect = destEl.getBoundingClientRect();
+
+        // Coordinates relative to panel's scroll area
+        var x1 = srcRect.left + srcRect.width / 2 - panelRect.left + scrollLeft;
+        var y1 = srcRect.top + srcRect.height / 2 - panelRect.top + scrollTop;
+        var x2 = destRect.left + destRect.width / 2 - panelRect.left + scrollLeft;
+        var y2 = destRect.top + destRect.height / 2 - panelRect.top + scrollTop;
+
+        // Quadratic bezier curve with control point offset horizontally
+        var cx = (x1 + x2) / 2 + (y2 - y1) * 0.15;
+        var cy = (y1 + y2) / 2;
+
+        var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M' + x1 + ',' + y1 + ' Q' + cx + ',' + cy + ' ' + x2 + ',' + y2);
+        svg.appendChild(path);
+    }
 }
 
 function createSubplotZone(index) {
@@ -1051,16 +1239,35 @@ function createSubplotZone(index) {
     var isTransform = subplotHasTransform(index);
 
     if (isTransform) {
-        // Transform layout: Y row (Transform:), X row (Signal:), filter controls, labels
-        zone.appendChild(createDropRow('Transform', 'y-zone', index, 'y'));
-        zone.appendChild(createDropRow('Signal', 'x-zone', index, 'x'));
-
         var transformType = getTransformType(index);
-        if (transformType === 'filter') {
-            zone.appendChild(createFilterControls(index));
+
+        if (transformType === 'bode') {
+            // Estimate TF layout: Transform (Y), Input (inputTags), Output (X)
+            zone.appendChild(createDropRow('Transform', 'y-zone', index, 'y'));
+            zone.appendChild(createDropRow('Input', 'input-zone', index, 'input'));
+            zone.appendChild(createDropRow('Output', 'x-zone', index, 'x'));
+        } else if (transformType === 'bode_single') {
+            // Bode Plot layout: same as FFT (Transform + Signal), with output
+            zone.appendChild(createDropRow('Transform', 'y-zone', index, 'y'));
+            zone.appendChild(createDropRow('Signal', 'x-zone', index, 'x'));
+            zone.appendChild(createOutputRow(index));
+        } else {
+            // FFT/Filter layout: Transform (Y), Signal (X), output row
+            zone.appendChild(createDropRow('Transform', 'y-zone', index, 'y'));
+            zone.appendChild(createDropRow('Signal', 'x-zone', index, 'x'));
+
+            if (transformType === 'filter') {
+                zone.appendChild(createFilterControls(index));
+            }
+
+            // Output row — only when both transform and signal are present
+            zone.appendChild(createOutputRow(index));
         }
     } else if (isSpecial) {
         zone.appendChild(createSpecialRow(index));
+        if (subplotHasField(index, '__imu__') || subplotHasField(index, '__imu_orient_correct__')) {
+            zone.appendChild(createIMUControls(index));
+        }
     } else {
         zone.appendChild(createDropRow('Y', 'y-zone', index, 'y'));
         zone.appendChild(createDropRow('X', 'x-zone', index, 'x'));
@@ -1178,10 +1385,16 @@ function createSubplotZone(index) {
         labelRow.appendChild(createLabelInput('Voltage', 'xLabel', index, subplots[index].xLabel));
         labelRow.appendChild(createLabelInput('Current', 'yLabel', index, subplots[index].yLabel));
         labelRow.appendChild(createLabelInput('Power', 'zLabel', index, subplots[index].zLabel));
-    } else if (subplotHasField(index, '__imu__')) {
+    } else if (subplotHasField(index, '__cmd_vel__')) {
+        labelRow.appendChild(createLabelInput('Forward Speed', 'xLabel', index, subplots[index].xLabel));
+        labelRow.appendChild(createLabelInput('Turn Rate', 'yLabel', index, subplots[index].yLabel));
+    } else if (subplotHasField(index, '__imu__') || subplotHasField(index, '__imu_orient_correct__')) {
         labelRow.appendChild(createLabelInput('Accel', 'xLabel', index, subplots[index].xLabel));
         labelRow.appendChild(createLabelInput('Gyro', 'yLabel', index, subplots[index].yLabel));
         labelRow.appendChild(createLabelInput('Orient', 'zLabel', index, subplots[index].zLabel));
+    } else if (subplotHasField(index, '__odom_gps__')) {
+        labelRow.appendChild(createLabelInput('East Axis', 'xLabel', index, subplots[index].xLabel));
+        labelRow.appendChild(createLabelInput('North Axis', 'yLabel', index, subplots[index].yLabel));
     } else {
         labelRow.appendChild(createLabelInput('X Axis', 'xLabel', index, subplots[index].xLabel));
         labelRow.appendChild(createLabelInput('Y Axis', 'yLabel', index, subplots[index].yLabel));
@@ -1232,14 +1445,28 @@ function createDropRow(label, zoneClass, subplotIndex, role) {
     target.dataset.role = role;
 
     var isXform = subplotHasTransform(subplotIndex);
-    var tags = role === 'x' ? subplots[subplotIndex].xTags : subplots[subplotIndex].yTags;
+    var tags;
+    if (role === 'input') {
+        tags = subplots[subplotIndex].inputTags;
+    } else if (role === 'x') {
+        tags = subplots[subplotIndex].xTags;
+    } else {
+        tags = subplots[subplotIndex].yTags;
+    }
     if (tags.length === 0) {
         var hint = document.createElement('span');
         hint.className = 'empty-hint';
         if (isXform && role === 'y') {
-            hint.textContent = 'Drop FFT or Filter here';
+            hint.textContent = 'Drop transform here';
         } else if (isXform && role === 'x') {
-            hint.textContent = 'Drop signal field here';
+            var txType = getTransformType(subplotIndex);
+            if (txType === 'bode') {
+                hint.textContent = 'Drop signal or output here (response)';
+            } else {
+                hint.textContent = 'Drop signal field here';
+            }
+        } else if (role === 'input') {
+            hint.textContent = 'Drop signal or output here (reference)';
         } else {
             hint.textContent = role === 'x' ? 'Drop X field here' : 'Drop Y field(s) here';
         }
@@ -1410,19 +1637,129 @@ function createFilterControls(index) {
     return row;
 }
 
+function createIMUControls(index) {
+    var row = document.createElement('div');
+    row.className = 'filter-controls';
+
+    var items = [
+        {key: 'showAccel', label: 'Accel'},
+        {key: 'showGyro', label: 'Gyro'},
+        {key: 'showOrient', label: 'Orient'}
+    ];
+
+    items.forEach(function(item) {
+        var lbl = document.createElement('label');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = subplots[index][item.key];
+        cb.addEventListener('change', function() {
+            subplots[index][item.key] = cb.checked;
+            sendAssignmentsToMatlab();
+        });
+        cb.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(' ' + item.label));
+        row.appendChild(lbl);
+    });
+
+    return row;
+}
+
+function createOutputRow(subplotIndex) {
+    var row = document.createElement('div');
+    row.className = 'drop-row';
+    row.dataset.outputRow = String(subplotIndex);
+
+    var rowLabel = document.createElement('div');
+    rowLabel.className = 'drop-row-label';
+    rowLabel.style.width = 'auto';
+    rowLabel.textContent = 'Output:';
+    row.appendChild(rowLabel);
+
+    var sp = subplots[subplotIndex];
+    var transformType = getTransformType(subplotIndex);
+
+    // Only show output bubble when both transform and signal are present
+    var hasTransform = sp.yTags.length > 0 && isTransformField(sp.yTags[0].field);
+    var hasSignal = sp.xTags.length > 0 && !isTransformField(sp.xTags[0].field);
+    if (!hasTransform || !hasSignal) {
+        var hint = document.createElement('span');
+        hint.className = 'empty-hint';
+        hint.textContent = 'Add transform + signal to generate output';
+        row.appendChild(hint);
+        return row;
+    }
+
+    var sigTag = sp.xTags[0];
+    var sigName = sigTag.displayName || prettyField(sigTag.field);
+    // Strip any existing domain tag like [t] or [s] to avoid duplication
+    sigName = sigName.replace(/\s*\[[ts]\]\s*$/g, '');
+    var domain = getOutputDomain(subplotIndex);
+    var domainLabel = '[' + domain + ']';
+
+    var outputField, outputDisplayName;
+    if (transformType === 'fft') {
+        outputField = '__fft_output__';
+        outputDisplayName = 'FFT: ' + sigName + ' ' + domainLabel;
+    } else if (transformType === 'bode_single') {
+        outputField = '__fft_output__';
+        outputDisplayName = 'Bode: ' + sigName + ' ' + domainLabel;
+    } else if (transformType === 'filter') {
+        outputField = '__filter_output__';
+        outputDisplayName = 'Filtered: ' + sigName + ' ' + domainLabel;
+    } else {
+        return row;
+    }
+
+    var bubble = document.createElement('span');
+    bubble.className = 'tag output-tag';
+    bubble.textContent = outputDisplayName;
+    bubble.title = 'Drag to use this output in another subplot';
+    bubble.dataset.outputSubplot = String(subplotIndex);
+
+    bubble.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        beginDragWatch(e, {
+            source: 'output',
+            topic: '__output__',
+            field: outputField,
+            sourceSubplot: subplotIndex,
+            sourceSignalTopic: sigTag.topic,
+            sourceSignalField: sigTag.field,
+            domain: domain,
+            displayName: outputDisplayName,
+            unit: ''
+        }, 'tag');
+    });
+
+    row.appendChild(bubble);
+    return row;
+}
+
 function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
     var tag = document.createElement('span');
     var transform = isTransformField(tagInfo.field);
-    var special = !transform && isSpecialField(tagInfo.field);
+    var output = isOutputField(tagInfo.field);
+    var special = !transform && !output && isSpecialField(tagInfo.field);
     if (transform) {
         tag.className = 'tag transform-dropped';
+    } else if (output) {
+        tag.className = 'tag output-dropped';
     } else if (special) {
         tag.className = 'tag special-dropped';
     } else {
         tag.className = 'tag ' + (role === 'x' ? 'x-tag' : 'y-tag');
     }
 
-    if (!special && !transform) {
+    // Mark output tags with data attribute for connection line targeting
+    if (output && tagInfo.sourceSubplot !== undefined) {
+        tag.dataset.outputSource = String(tagInfo.sourceSubplot);
+        tag.dataset.outputDest = String(subplotIndex);
+        tag.dataset.destRole = role;
+    }
+
+    if (!special && !transform && !output) {
         var roleSpan = document.createElement('span');
         roleSpan.className = 'role-indicator';
         roleSpan.textContent = role.toUpperCase();
@@ -1440,7 +1777,14 @@ function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
     removeBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         var sp = subplots[subplotIndex];
-        var list = role === 'x' ? sp.xTags : sp.yTags;
+        var list;
+        if (role === 'input') {
+            list = sp.inputTags;
+        } else if (role === 'x') {
+            list = sp.xTags;
+        } else {
+            list = sp.yTags;
+        }
         list.splice(tagIndex, 1);
         autoFillLabels(subplotIndex);
         renderSubplotPanel();
@@ -1448,8 +1792,8 @@ function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
     });
     tag.appendChild(removeBtn);
 
-    // Click to toggle X/Y (not for special or transform tags)
-    if (!special && !transform) {
+    // Click to toggle X/Y (not for special, transform, or output tags)
+    if (!special && !transform && !output && role !== 'input') {
         tag.addEventListener('click', function(e) {
             if (e.target === removeBtn || e.target.parentNode === removeBtn) return;
             toggleTagRole(subplotIndex, role, tagIndex);
@@ -1461,7 +1805,7 @@ function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
         if (e.button !== 0) return;
         if (e.target === removeBtn || e.target.parentNode === removeBtn) return;
         e.preventDefault();
-        beginDragWatch(e, {
+        var dragData = {
             source: 'zone',
             topic: tagInfo.topic,
             field: tagInfo.field,
@@ -1470,7 +1814,15 @@ function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
             srcSubplot: subplotIndex,
             srcRole: role,
             srcIndex: tagIndex
-        }, 'tag');
+        };
+        // Preserve output metadata when re-dragging
+        if (output) {
+            dragData.domain = tagInfo.domain;
+            dragData.sourceSubplot = tagInfo.sourceSubplot;
+            dragData.sourceSignalTopic = tagInfo.sourceSignalTopic;
+            dragData.sourceSignalField = tagInfo.sourceSignalField;
+        }
+        beginDragWatch(e, dragData, 'tag');
     });
 
     return tag;
@@ -1625,16 +1977,44 @@ function performDrop(target, info) {
         unit: info.unit
     };
 
+    // Carry over output metadata if present
+    if (info.source === 'output' || isOutputField(info.field)) {
+        tagData.domain = info.domain || 't';
+        tagData.sourceSubplot = info.sourceSubplot;
+        tagData.sourceSignalTopic = info.sourceSignalTopic;
+        tagData.sourceSignalField = info.sourceSignalField;
+    }
+
     if (info.source === 'zone') {
         var srcSp = subplots[info.srcSubplot];
-        var srcList = info.srcRole === 'x' ? srcSp.xTags : srcSp.yTags;
+        var srcList;
+        if (info.srcRole === 'input') {
+            srcList = srcSp.inputTags;
+        } else if (info.srcRole === 'x') {
+            srcList = srcSp.xTags;
+        } else {
+            srcList = srcSp.yTags;
+        }
         srcList.splice(info.srcIndex, 1);
+    }
+
+    // Bode Input/Output zones: accept [s]-domain outputs or [t]-domain data (auto-FFT)
+    if (role === 'input') {
+        sp.inputTags = [tagData];
+        autoFillLabels(subplotIndex);
+        renderSubplotPanel();
+        sendAssignmentsToMatlab();
+        return;
     }
 
     if (isTransformField(tagData.field)) {
         // Transform fields go to Y only, clear Y but preserve X (signal input)
         sp.yTags = [tagData];
-    } else if (isSpecialField(tagData.field)) {
+        // If switching to bode, clear inputTags
+        if (tagData.field === '__bode__' || tagData.field === '__bode_single__') {
+            sp.inputTags = sp.inputTags || [];
+        }
+    } else if (isSpecialField(tagData.field) && !isOutputField(tagData.field)) {
         // Special fields take over the entire subplot
         sp.xTags = [];
         sp.yTags = [tagData];
@@ -1644,9 +2024,13 @@ function performDrop(target, info) {
         renderSubplotPanel();
         sendAssignmentsToMatlab();
         return;
+    } else if (subplotHasTransform(subplotIndex) && role === 'x' && getTransformType(subplotIndex) === 'bode') {
+        // Bode Output zone: accept [s]-domain outputs or [t]-domain data (auto-FFT)
+        sp.xTags = [tagData];
     } else if (role === 'x') {
         sp.xTags = [tagData];
     } else {
+        // Y drops: allow output fields and normal fields
         var exists = sp.yTags.some(function(t) { return t.topic === tagData.topic && t.field === tagData.field; });
         if (!exists) sp.yTags.push(tagData);
     }
