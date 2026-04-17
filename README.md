@@ -1,10 +1,53 @@
-This project is meant to help VT AutoNav easily visualize data.
+# AutoNav Data Visualizer
 
-Main script is AutoNavDataAnalysis.prj - launch this to have the app pop up
-There is a GUI in the App Folder called TestingGUI that lets users choose what data they want to see
+MATLAB toolbox for visualizing ROS2 log data from the VT AutoNav robot.
 
-To get data from the robot run this command (on your computer, not the container nor the jetson):
+## Getting Started
 
-`scp -r jetson:~/AutoNav_25-26/logs ~/Downloads/logs`
+1. Open `AutoNavDataAnalysis.prj` in MATLAB to add all paths
+2. Launch either app from the `App/` folder
 
-This assumes that "jetson" has been setup in your .ssh/config.
+## Apps
+
+| App | Description |
+|-----|-------------|
+| **TestingGUI** | Predefined plot layouts — select topics and view standard plots |
+| **DataVisualizer** | Drag-and-drop subplot builder with configurable grid, labels, and transforms |
+
+### DataVisualizer Features
+
+- **Drag-and-drop** fields onto subplots (X/Y axes, dual Y-axis for mixed units)
+- **Special plots:** GPS (satellite map), Odometry path, Odom GPS-aligned (North/East), CMD Vel, Electrical, IMU
+- **Transforms:** FFT, Filter (Butterworth/FFT-based), Bode TF estimation (H1), Bode Single
+- **IMU orientation correction** — auto-detects mounting angle from gravity, rotates to robot frame
+- **Transform chaining** — filter outputs can feed into FFT or Bode via output bubbles
+- **Custom labels/titles** per subplot, toggleable units and labels
+
+## Data Pipeline
+
+```
+CSV (ROS2 log) → parse_log() → clean_log() → LogData struct
+```
+
+- `parse_log` reads CSV into nested struct: `data.topic.field` (column vectors, `.time` on each topic)
+- `clean_log` converts odom quaternions to yaw, offsets odom/encoders to zero at t=0
+
+## Retrieving Data
+
+From your computer (not the container or Jetson):
+
+```
+scp -r jetson:~/AutoNav_25-26/logs ~/Downloads/logs
+```
+
+Requires `jetson` configured in `~/.ssh/config`.
+
+## Project Structure
+
+```
+App/                  GUI apps (TestingGUI, DataVisualizer)
+App/html/             uihtml interface for drag-and-drop
+HelperFunctions/      parse_log, clean_log, plot functions, align_fields, transform_imu
+TestingData/          Sample CSV logs
+python/               Waypoint accuracy analysis scripts (Folium/Matplotlib)
+```
