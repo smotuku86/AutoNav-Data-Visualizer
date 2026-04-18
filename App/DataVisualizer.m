@@ -15,10 +15,12 @@ classdef DataVisualizer < handle
 
         % Data
         LogData
-        FieldList = {}      % cell array of structs: {topic, field, displayName, unit}
+        LogData2            % second CSV data source (dual-CSV mode)
+        FieldList = {}      % cell array of structs: {topic, field, displayName, unit, csvIndex}
         Assignments = {}    % cell array of structs from HTML
         UnitMap
         DisplayNameMap
+        CsvNames = {}       % cell array of loaded CSV filenames
 
         % State
         CurrentLayout = [1 1]
@@ -63,11 +65,12 @@ classdef DataVisualizer < handle
 
             xPos = 10;
 
-            app.LoadButton = uibutton(app.ToolbarPanel, 'push', ...
-                'Text', 'Load CSV', ...
-                'Position', [xPos 10 80 30], ...
-                'ButtonPushedFcn', @(~,~) LoadButtonPushed(app));
-            xPos = xPos + 90;
+            app.LoadButton = uidropdown(app.ToolbarPanel, ...
+                'Items', {'Load', 'Load 1 CSV', 'Load 2 CSV'}, ...
+                'Value', 'Load', ...
+                'Position', [xPos 10 100 30], ...
+                'ValueChangedFcn', @(src,~) LoadDropdownChanged(app, src));
+            xPos = xPos + 110;
 
             app.PlotButton = uibutton(app.ToolbarPanel, 'push', ...
                 'Text', 'Plot', ...
@@ -150,9 +153,22 @@ classdef DataVisualizer < handle
         end
 
         % ==============================================================
-        % Load CSV
+        % Load dropdown handler
         % ==============================================================
-        function LoadButtonPushed(app)
+        function LoadDropdownChanged(app, src)
+            val = src.Value;
+            src.Value = 'Load';  % Reset dropdown immediately
+            if strcmp(val, 'Load 1 CSV')
+                LoadOneCsv(app);
+            elseif strcmp(val, 'Load 2 CSV')
+                LoadTwoCsv(app);
+            end
+        end
+
+        % ==============================================================
+        % Load single CSV
+        % ==============================================================
+        function LoadOneCsv(app)
             projRoot = fileparts(fileparts(mfilename('fullpath')));
             startDir = fullfile(projRoot, 'TestingData');
 
@@ -174,22 +190,112 @@ classdef DataVisualizer < handle
                 return;
             end
 
+            % Clear second CSV
+            app.LogData2 = [];
+            app.CsvNames = {file};
+
             app.UIFigure.Name = ['Data Visualizer - ' file];
 
-            % Compute derived velocity fields as synthetic topics
-            if isfield(app.LogData, 'odom')
-                raw = computeOdomVelocity(app.LogData.odom);
-                app.LogData.odom_velocity.time = raw.time;
-                app.LogData.odom_velocity.vx   = raw.x;
-                app.LogData.odom_velocity.vy   = raw.y;
-                app.LogData.odom_velocity.mag  = raw.mag;
+            computeDerivedFields(app, app.LogData, 1);
+
+            app.FieldList = buildFieldList(app);
+
+            layout = parseLayout(app);
+            app.HTMLComponent.Data = struct( ...
+                'type', 'fieldsUpdate', ...
+                'fields', {app.FieldList}, ...
+                'layout', layout, ...
+                'csvNames', {app.CsvNames});
+
+            % Bring main app window back to front after file dialog
+            figure(app.UIFigure);
+        end
+
+        % ==============================================================
+        % Load two CSVs
+        % ==============================================================
+        function LoadTwoCsv(app)
+            projRoot = fileparts(fileparts(mfilename('fullpath')));
+            startDir = fullfile(projRoot, 'TestingData');
+
+            % Temporarily hide uifigure so the classic file dialog is not behind it
+            app.UIFigure.Visible = 'off';
+            [files, path] = uigetfile( ...
+                fullfile(startDir, '*.csv;*.txt;*.log'), 'Select Two Log Files', ...
+                'MultiSelect', 'on');
+            app.UIFigure.Visible = 'on';
+
+            if isequal(files, 0), return; end
+
+            % Handle single file selection
+            if ischar(files)
+                uialert(app.UIFigure, ...
+                    'Please select exactly two files.', 'Selection Error');
+                return;
+            end
+            if numel(files) ~= 2
+                uialert(app.UIFigure, ...
+                    'Please select exactly two files.', 'Selection Error');
+                return;
+            end
+
+            % Parse first CSV
+            try
+                app.LogData = parse_log(fullfile(path, files{1}));
+                app.LogData = clean_log(app.LogData);
+            catch ME
+                uialert(app.UIFigure, ...
+                    sprintf('Error parsing CSV 1:\n%s', ME.message), 'Parse Error');
+                return;
+            end
+
+            % Parse second CSV
+            try
+                app.LogData2 = parse_log(fullfile(path, files{2}));
+                app.LogData2 = clean_log(app.LogData2);
+            catch ME
+                uialert(app.UIFigure, ...
+                    sprintf('Error parsing CSV 2:\n%s', ME.message), 'Parse Error');
+                return;
+            end
+
+            app.CsvNames = {files{1}, files{2}};
+
+            app.UIFigure.Name = ['Data Visualizer - ' files{1} ' + ' files{2}];
+
+            computeDerivedFields(app, app.LogData, 1);
+            computeDerivedFields(app, app.LogData2, 2);
+
+            app.FieldList = buildFieldList(app);
+
+            layout = parseLayout(app);
+            app.HTMLComponent.Data = struct( ...
+                'type', 'fieldsUpdate', ...
+                'fields', {app.FieldList}, ...
+                'layout', layout, ...
+                'csvNames', {app.CsvNames});
+
+            % Bring main app window back to front after file dialog
+            figure(app.UIFigure);
+        end
+
+        % ==============================================================
+        % Compute derived fields (velocity, IMU) for a data source
+        % ==============================================================
+        function computeDerivedFields(app, logData, csvIdx)
+            if isfield(logData, 'odom')
+                raw = computeOdomVelocity(logData.odom);
+                logData.odom_velocity.time = raw.time;
+                logData.odom_velocity.vx   = raw.x;
+                logData.odom_velocity.vy   = raw.y;
+                logData.odom_velocity.mag  = raw.mag;
 
                 try
-                    filt = computeOdomVelocity_SG(app.LogData.odom);
-                    app.LogData.odom_velocity_filtered.time = filt.time;
-                    app.LogData.odom_velocity_filtered.vx   = filt.x;
-                    app.LogData.odom_velocity_filtered.vy   = filt.y;
-                    app.LogData.odom_velocity_filtered.mag  = filt.mag;
+                    filt = computeOdomVelocity_SG(logData.odom);
+                    logData.odom_velocity_filtered.time = filt.time;
+                    logData.odom_velocity_filtered.vx   = filt.x;
+                    logData.odom_velocity_filtered.vy   = filt.y;
+                    logData.odom_velocity_filtered.mag  = filt.mag;
                 catch ME
                     warning('DataVisualizer:FilteredVelocity', ...
                         ['Filtered velocity unavailable: %s\n' ...
@@ -198,147 +304,122 @@ classdef DataVisualizer < handle
                 end
             end
 
-            % Compute corrected IMU as synthetic topic
-            if isfield(app.LogData, 'zed_zed_node_imu_data')
-                [corrected, rotInfo] = transform_imu(app.LogData.zed_zed_node_imu_data);
-                app.LogData.imu_corrected = corrected;
-                app.RotInfo = rotInfo;
+            if isfield(logData, 'zed_zed_node_imu_data')
+                [corrected, rotInfo] = transform_imu(logData.zed_zed_node_imu_data);
+                logData.imu_corrected = corrected;
+                if csvIdx == 1
+                    app.RotInfo = rotInfo;
+                end
+
+                imuData = logData.zed_zed_node_imu_data;
+                if isfield(imuData,'accel_x') && isfield(imuData,'accel_y') && isfield(imuData,'accel_z')
+                    logData.zed_zed_node_imu_data.accel_mag = sqrt( ...
+                        imuData.accel_x.^2 + imuData.accel_y.^2 + imuData.accel_z.^2);
+                end
+                if isfield(imuData,'gyro_x') && isfield(imuData,'gyro_y') && isfield(imuData,'gyro_z')
+                    logData.zed_zed_node_imu_data.gyro_mag = sqrt( ...
+                        imuData.gyro_x.^2 + imuData.gyro_y.^2 + imuData.gyro_z.^2);
+                end
             end
 
-            app.FieldList = buildFieldList(app);
-
-            layout = parseLayout(app);
-            app.HTMLComponent.Data = struct( ...
-                'type', 'fieldsUpdate', ...
-                'fields', {app.FieldList}, ...
-                'layout', layout);
-
-            % Bring main app window back to front after file dialog
-            figure(app.UIFigure);
+            % Write back to the correct property (structs are value types)
+            if csvIdx == 1
+                app.LogData = logData;
+            else
+                app.LogData2 = logData;
+            end
         end
 
         % ==============================================================
         % Build field list from LogData struct
         % ==============================================================
         function fields = buildFieldList(app)
+            % Build fields for CSV 1 (with special tags)
+            fields = buildFieldsForSource(app, app.LogData, 1, true);
+
+            % Build fields for CSV 2 if loaded (no special tags)
+            if ~isempty(app.LogData2)
+                fields2 = buildFieldsForSource(app, app.LogData2, 2, true);
+                fields = [fields, fields2];
+            end
+
+            % Append transform entries (shared, not CSV-specific)
+            fields{end+1} = struct( ...
+                'topic', '__transform__', 'field', '__fft__', ...
+                'displayName', 'FFT', 'unit', '', 'csvIndex', 0);
+            fields{end+1} = struct( ...
+                'topic', '__transform__', 'field', '__filter__', ...
+                'displayName', 'Filter', 'unit', '', 'csvIndex', 0);
+            fields{end+1} = struct( ...
+                'topic', '__transform__', 'field', '__bode_single__', ...
+                'displayName', 'Bode Plot', 'unit', '', 'csvIndex', 0);
+            fields{end+1} = struct( ...
+                'topic', '__transform__', 'field', '__bode__', ...
+                'displayName', 'Estimate TF', 'unit', '', 'csvIndex', 0);
+            fields{end+1} = struct( ...
+                'topic', '__transform__', 'field', '__average__', ...
+                'displayName', 'Average', 'unit', '', 'csvIndex', 0);
+        end
+
+        % ==============================================================
+        % Build field entries for a single data source
+        % ==============================================================
+        function fields = buildFieldsForSource(app, logData, csvIdx, includeSpecials)
             fields = {};
-            topics = fieldnames(app.LogData);
+            topics = fieldnames(logData);
             for i = 1:numel(topics)
                 topic = topics{i};
 
-                % GPS: emit a special plot tag, then also the individual fields
-                if strcmp(topic, 'gps_fix')
-                    entry = struct( ...
-                        'topic', 'gps_fix', ...
-                        'field', '__gps__', ...
-                        'displayName', 'GPS Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-                end
-
-                % Electrical: emit a special plot tag (only once, on first electrical topic)
-                if startsWith(topic, 'electrical_') && ~any(cellfun(@(f) strcmp(f.field, '__electrical__'), fields))
-                    entry = struct( ...
-                        'topic', 'electrical', ...
-                        'field', '__electrical__', ...
-                        'displayName', 'Electrical Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-                end
-
-                % IMU: emit a special plot tag
-                if strcmp(topic, 'zed_zed_node_imu_data')
-                    entry = struct( ...
-                        'topic', 'zed_zed_node_imu_data', ...
-                        'field', '__imu__', ...
-                        'displayName', 'IMU Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-
-                    entry = struct( ...
-                        'topic', 'imu_corrected', ...
-                        'field', '__imu_orient_correct__', ...
-                        'displayName', 'IMU Orient Correct Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-
-                    % Compute acceleration and gyro magnitudes if components exist
-                    imuData = app.LogData.zed_zed_node_imu_data;
-                    if isfield(imuData,'accel_x') && isfield(imuData,'accel_y') && isfield(imuData,'accel_z')
-                        app.LogData.zed_zed_node_imu_data.accel_mag = sqrt( ...
-                            imuData.accel_x.^2 + imuData.accel_y.^2 + imuData.accel_z.^2);
+                if includeSpecials
+                    % GPS: emit a special plot tag
+                    if strcmp(topic, 'gps_fix')
+                        fields{end+1} = struct('topic', 'gps_fix', 'field', '__gps__', ...
+                            'displayName', 'GPS Plot Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
                     end
-                    if isfield(imuData,'gyro_x') && isfield(imuData,'gyro_y') && isfield(imuData,'gyro_z')
-                        app.LogData.zed_zed_node_imu_data.gyro_mag = sqrt( ...
-                            imuData.gyro_x.^2 + imuData.gyro_y.^2 + imuData.gyro_z.^2);
+
+                    % Electrical: emit a special plot tag (only once)
+                    if startsWith(topic, 'electrical_') && ~any(cellfun(@(f) strcmp(f.field, '__electrical__'), fields))
+                        fields{end+1} = struct('topic', 'electrical', 'field', '__electrical__', ...
+                            'displayName', 'Electrical Plot Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
+                    end
+
+                    % IMU: emit special plot tags
+                    if strcmp(topic, 'zed_zed_node_imu_data')
+                        fields{end+1} = struct('topic', 'zed_zed_node_imu_data', 'field', '__imu__', ...
+                            'displayName', 'IMU Plot Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
+                        fields{end+1} = struct('topic', 'imu_corrected', 'field', '__imu_orient_correct__', ...
+                            'displayName', 'IMU Orient Correct Plot Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
+                    end
+
+                    % CMD VEL: emit a special plot tag
+                    if strcmp(topic, 'cmd_vel')
+                        fields{end+1} = struct('topic', 'cmd_vel', 'field', '__cmd_vel__', ...
+                            'displayName', 'CMD VEL Plot Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
+                    end
+
+                    % Odom: emit special plot tags
+                    if strcmp(topic, 'odom')
+                        if isfield(logData, 'gps_fix')
+                            fields{end+1} = struct('topic', 'odom', 'field', '__odom_gps__', ...
+                                'displayName', 'Odom GPS Aligned Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
+                        end
+                        fields{end+1} = struct('topic', 'odom', 'field', '__odom__', ...
+                            'displayName', 'Odometry Plot Special', 'unit', '', 'csvIndex', csvIdx); %#ok<AGROW>
                     end
                 end
 
-                % CMD VEL: emit a special plot tag
-                if strcmp(topic, 'cmd_vel')
-                    entry = struct( ...
-                        'topic', 'cmd_vel', ...
-                        'field', '__cmd_vel__', ...
-                        'displayName', 'CMD VEL Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-                end
-
-                % Odom: emit special plot tags, then also the individual fields
-                if strcmp(topic, 'odom')
-                    if isfield(app.LogData, 'gps_fix')
-                        entry = struct( ...
-                            'topic', 'odom', ...
-                            'field', '__odom_gps__', ...
-                            'displayName', 'Odom GPS Aligned Special', ...
-                            'unit', '');
-                        fields{end+1} = entry; %#ok<AGROW>
-                    end
-                    entry = struct( ...
-                        'topic', 'odom', ...
-                        'field', '__odom__', ...
-                        'displayName', 'Odometry Plot Special', ...
-                        'unit', '');
-                    fields{end+1} = entry; %#ok<AGROW>
-                end
-
-                topicData = app.LogData.(topic);
+                topicData = logData.(topic);
                 fnames = fieldnames(topicData);
                 for j = 1:numel(fnames)
                     fname = fnames{j};
                     unit = lookupUnit(app, topic, fname);
                     displayName = lookupDisplayName(app, topic, fname);
-                    entry = struct( ...
-                        'topic', topic, ...
-                        'field', fname, ...
-                        'displayName', displayName, ...
-                        'unit', unit);
-                    fields{end+1} = entry; %#ok<AGROW>
+                    fields{end+1} = struct( ...
+                        'topic', topic, 'field', fname, ...
+                        'displayName', displayName, 'unit', unit, ...
+                        'csvIndex', csvIdx); %#ok<AGROW>
                 end
             end
-
-            % Append transform entries (FFT and Filter)
-            fields{end+1} = struct( ...
-                'topic', '__transform__', ...
-                'field', '__fft__', ...
-                'displayName', 'FFT', ...
-                'unit', '');
-            fields{end+1} = struct( ...
-                'topic', '__transform__', ...
-                'field', '__filter__', ...
-                'displayName', 'Filter', ...
-                'unit', '');
-            fields{end+1} = struct( ...
-                'topic', '__transform__', ...
-                'field', '__bode_single__', ...
-                'displayName', 'Bode Plot', ...
-                'unit', '');
-            fields{end+1} = struct( ...
-                'topic', '__transform__', ...
-                'field', '__bode__', ...
-                'displayName', 'Estimate TF', ...
-                'unit', '');
-
         end
 
         % ==============================================================
@@ -416,11 +497,16 @@ classdef DataVisualizer < handle
             rows = layout(1);
             cols = layout(2);
 
-            % Create or reuse figure (avoid figure() call which steals focus)
+            % Create or reuse figure — size to 80% of screen
             if isempty(app.PlotFigure) || ~isvalid(app.PlotFigure)
+                screenSz = get(0, 'ScreenSize');
+                figW = round(screenSz(3) * 0.8);
+                figH = round(screenSz(4) * 0.8);
+                figX = round((screenSz(3) - figW) / 2);
+                figY = round((screenSz(4) - figH) / 2);
                 app.PlotFigure = figure('Name', 'Data Visualizer - Plots', ...
                     'NumberTitle', 'off', ...
-                    'Position', [150 80 1000 700]);
+                    'Position', [figX figY figW figH]);
             else
                 clf(app.PlotFigure);
             end
@@ -497,49 +583,59 @@ classdef DataVisualizer < handle
                     continue;
                 end
 
-                % Check for special plot tags
-                if hasSpecialTag(xTags, yTags, '__gps__')
-                    if isfield(app.LogData, 'gps_fix')
+                % Check for special plot tags — resolve csvIndex for data source
+                spTag = findSpecialTag(xTags, yTags, '__gps__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
+                    if isfield(spData, 'gps_fix')
                         spLabels = struct('title', '', 'xLabel', '', 'yLabel', '', 'zLabel', '');
                         if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
                         if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
                         if isfield(sp, 'zLabel'), spLabels.zLabel = sp.zLabel; end
-                        plotGPSInSubplot(app, rows, cols, k, spLabels);
+                        plotGPSInSubplot(app, spData, rows, cols, k, spLabels);
                     end
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__odom__')
-                    if isfield(app.LogData, 'odom')
-                        plotOdomInSubplot(app, rows, cols, k);
+                spTag = findSpecialTag(xTags, yTags, '__odom__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
+                    if isfield(spData, 'odom')
+                        plotOdomInSubplot(app, spData, rows, cols, k);
                     end
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__odom_gps__')
-                    if isfield(app.LogData, 'odom') && isfield(app.LogData, 'gps_fix')
+                spTag = findSpecialTag(xTags, yTags, '__odom_gps__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
+                    if isfield(spData, 'odom') && isfield(spData, 'gps_fix')
                         spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
                         if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
                         if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
-                        plotOdomGPSInSubplot(app, rows, cols, k, spLabels);
+                        plotOdomGPSInSubplot(app, spData, rows, cols, k, spLabels);
                     end
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__electrical__')
+                spTag = findSpecialTag(xTags, yTags, '__electrical__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
                     spLabels = struct('title', '', 'xLabel', '', 'yLabel', '', 'zLabel', '');
                     if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
                     if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
                     if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
                     if isfield(sp, 'zLabel'), spLabels.zLabel = sp.zLabel; end
-                    plotElectricalInSubplot(app, rows, cols, k, spLabels);
+                    plotElectricalInSubplot(app, spData, rows, cols, k, spLabels);
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__imu__')
-                    if isfield(app.LogData, 'zed_zed_node_imu_data')
+                spTag = findSpecialTag(xTags, yTags, '__imu__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
+                    if isfield(spData, 'zed_zed_node_imu_data')
                         spLabels = struct('title', '', 'xLabel', '', 'yLabel', '', 'zLabel', '');
                         if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
@@ -549,13 +645,15 @@ classdef DataVisualizer < handle
                         if isfield(sp,'showAccel')  && ~isempty(sp.showAccel),  showGroups(1) = logical(sp.showAccel);  end
                         if isfield(sp,'showGyro')   && ~isempty(sp.showGyro),   showGroups(2) = logical(sp.showGyro);   end
                         if isfield(sp,'showOrient') && ~isempty(sp.showOrient),  showGroups(3) = logical(sp.showOrient); end
-                        plotIMUInSubplot(app, rows, cols, k, spLabels, showGroups);
+                        plotIMUInSubplot(app, spData, rows, cols, k, spLabels, showGroups);
                     end
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__imu_orient_correct__')
-                    if isfield(app.LogData, 'zed_zed_node_imu_data')
+                spTag = findSpecialTag(xTags, yTags, '__imu_orient_correct__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
+                    if isfield(spData, 'imu_corrected')
                         spLabels = struct('title', '', 'xLabel', '', 'yLabel', '', 'zLabel', '');
                         if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
@@ -565,18 +663,20 @@ classdef DataVisualizer < handle
                         if isfield(sp,'showAccel')  && ~isempty(sp.showAccel),  showGroups(1) = logical(sp.showAccel);  end
                         if isfield(sp,'showGyro')   && ~isempty(sp.showGyro),   showGroups(2) = logical(sp.showGyro);   end
                         if isfield(sp,'showOrient') && ~isempty(sp.showOrient),  showGroups(3) = logical(sp.showOrient); end
-                        plotIMUTransformInSubplot(app, rows, cols, k, spLabels, showGroups);
+                        plotIMUTransformInSubplot(app, spData, rows, cols, k, spLabels, showGroups);
                     end
                     continue;
                 end
 
-                if hasSpecialTag(xTags, yTags, '__cmd_vel__')
-                    if isfield(app.LogData, 'cmd_vel')
+                spTag = findSpecialTag(xTags, yTags, '__cmd_vel__');
+                if ~isempty(spTag)
+                    spData = getLogDataForCsv(app, spTag);
+                    if isfield(spData, 'cmd_vel')
                         spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
                         if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
                         if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
                         if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
-                        plotCmdVelInSubplot(app, rows, cols, k, spLabels);
+                        plotCmdVelInSubplot(app, spData, rows, cols, k, spLabels);
                     end
                     continue;
                 end
@@ -646,6 +746,21 @@ classdef DataVisualizer < handle
                     continue;
                 end
 
+                % --- Average transform ---
+                if hasSpecialTag(xTags, yTags, '__average__')
+                    spLabels = struct('title', '', 'xLabel', '', 'yLabel', '');
+                    if isfield(sp, 'title'),  spLabels.title  = sp.title;  end
+                    if isfield(sp, 'xLabel'), spLabels.xLabel = sp.xLabel; end
+                    if isfield(sp, 'yLabel'), spLabels.yLabel = sp.yLabel; end
+                    speedUnit = 'off';
+                    if isfield(sp, 'speedUnit') && ~isempty(sp.speedUnit)
+                        speedUnit = sp.speedUnit;
+                    end
+                    ax = subplot(rows, cols, k, 'Parent', app.PlotFigure);
+                    plotAverageInSubplot(app, ax, xTags, spLabels, speedUnit);
+                    continue;
+                end
+
                 % If only Y tags with no X, default X to first Y's time
                 if isempty(xTags) && ~isempty(yTags)
                     firstYTag = getTagStruct(yTags, 1);
@@ -694,7 +809,8 @@ classdef DataVisualizer < handle
             xTopic = xTag.topic;
             xField = xTag.field;
 
-            xTopicData = app.LogData.(xTopic);
+            xLogData = getLogDataForCsv(app, xTag);
+            xTopicData = xLogData.(xTopic);
             xData = xTopicData.(xField);
             xTime = xTopicData.time;
 
@@ -734,7 +850,8 @@ classdef DataVisualizer < handle
                 yTopic = yTag.topic;
                 yField = yTag.field;
 
-                yTopicData = app.LogData.(yTopic);
+                yLogData = getLogDataForCsv(app, yTag);
+                yTopicData = yLogData.(yTopic);
                 yData = yTopicData.(yField);
                 yTime = yTopicData.time;
 
@@ -879,8 +996,8 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot GPS inside a subplot position
         % ==============================================================
-        function plotGPSInSubplot(app, rows, cols, idx, spLabels)
-            gpsData = app.LogData.gps_fix;
+        function plotGPSInSubplot(app, logData, rows, cols, idx, spLabels)
+            gpsData = logData.gps_fix;
             lat = double(gpsData.latitude(:));
             lon = double(gpsData.longitude(:));
             alt = double(gpsData.altitude(:));
@@ -937,8 +1054,8 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot Odometry inside a subplot
         % ==============================================================
-        function plotOdomInSubplot(app, rows, cols, idx)
-            odom = app.LogData.odom;
+        function plotOdomInSubplot(app, logData, rows, cols, idx)
+            odom = logData.odom;
             x = odom.pos_x(:);
             y = odom.pos_y(:);
             theta = odom.orient_z(:);
@@ -969,9 +1086,9 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot Odometry rotated to align with GPS North
         % ==============================================================
-        function plotOdomGPSInSubplot(app, rows, cols, idx, spLabels)
-            odom = app.LogData.odom;
-            gps  = app.LogData.gps_fix;
+        function plotOdomGPSInSubplot(app, logData, rows, cols, idx, spLabels)
+            odom = logData.odom;
+            gps  = logData.gps_fix;
 
             x     = odom.pos_x(:);
             y     = odom.pos_y(:);
@@ -1072,8 +1189,8 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot Electrical data (V, I, P) as 3 mini-subplots in one slot
         % ==============================================================
-        function plotCmdVelInSubplot(app, rows, cols, idx, spLabels)
-            cv = app.LogData.cmd_vel;
+        function plotCmdVelInSubplot(app, logData, rows, cols, idx, spLabels)
+            cv = logData.cmd_vel;
             t = cv.time;
 
             ax = subplot(rows, cols, idx, 'Parent', app.PlotFigure);
@@ -1111,29 +1228,30 @@ classdef DataVisualizer < handle
             end
         end
 
-        function plotElectricalInSubplot(app, rows, cols, idx, spLabels)
+        function plotElectricalInSubplot(app, logData, rows, cols, idx, spLabels)
             % Grab the subplot position, then replace with a tiled layout
             tempAx = subplot(rows, cols, idx, 'Parent', app.PlotFigure);
             pos = tempAx.Position;
             delete(tempAx);
 
-            % Create an invisible uipanel at that position to hold 3 axes
+            % Create a uipanel at that position to hold stacked axes
             pan = uipanel(app.PlotFigure, 'Units', 'normalized', ...
-                'Position', pos, 'BorderType', 'none', 'BackgroundColor', 'w');
+                'Position', pos, 'BorderType', 'none', ...
+                'BackgroundColor', app.PlotFigure.Color);
 
             % Three vertical sub-axes within the panel
             specs = struct('topic', {}, 'dataField', {}, 'color', {}, 'defaultLabel', {});
-            if isfield(app.LogData, 'electrical_voltage')
+            if isfield(logData, 'electrical_voltage')
                 specs(end+1) = struct('topic', 'electrical_voltage', ...
                     'dataField', 'voltage_V', 'color', [0 0.447 0.741], ...
                     'defaultLabel', 'Voltage [V]');
             end
-            if isfield(app.LogData, 'electrical_current')
+            if isfield(logData, 'electrical_current')
                 specs(end+1) = struct('topic', 'electrical_current', ...
                     'dataField', 'current_A', 'color', [0.85 0.325 0.098], ...
                     'defaultLabel', 'Current [A]');
             end
-            if isfield(app.LogData, 'electrical_power')
+            if isfield(logData, 'electrical_power')
                 specs(end+1) = struct('topic', 'electrical_power', ...
                     'dataField', 'power_W', 'color', [0.466 0.674 0.188], ...
                     'defaultLabel', 'Power [W]');
@@ -1143,25 +1261,29 @@ classdef DataVisualizer < handle
             if n == 0, return; end
 
             labelFields = {'xLabel', 'yLabel', 'zLabel'};
-            gap = 0.08;
-            axH = (1 - gap*(n+1)) / n;
+            gap = 0.06;
+            topMargin = 0.06;
+            bottomMargin = 0.12;
+            axH = (1 - topMargin - bottomMargin - gap*(n-1)) / n;
 
             for i = 1:n
-                bottom = 1 - i*(axH + gap);
+                bottom = 1 - topMargin - i*axH - (i-1)*gap;
                 ax = axes(pan, 'Units', 'normalized', ...
-                    'Position', [0.12 bottom 0.82 axH]);
+                    'Position', [0.18 bottom 0.78 axH]);
 
-                topicData = app.LogData.(specs(i).topic);
-                plot(ax, topicData.time, topicData.(specs(i).dataField), ...
+                topicData = logData.(specs(i).topic);
+                yData = topicData.(specs(i).dataField);
+                plot(ax, topicData.time, yData, ...
                     '-', 'Color', specs(i).color, 'LineWidth', 1.5);
                 grid(ax, 'on');
+                padYAxis(ax, yData, 0.10);
 
                 if app.ShowLabels
                     % Use custom label if provided, otherwise default
                     if i <= numel(labelFields) && ~isempty(spLabels.(labelFields{i}))
-                        ylabel(ax, spLabels.(labelFields{i}), 'Interpreter', 'none');
+                        ylabel(ax, wrapYLabel(spLabels.(labelFields{i})), 'Interpreter', 'none');
                     else
-                        ylabel(ax, specs(i).defaultLabel, 'Interpreter', 'none');
+                        ylabel(ax, wrapYLabel(specs(i).defaultLabel), 'Interpreter', 'none');
                     end
                     if i == n
                         xlabel(ax, 'Time [s]', 'Interpreter', 'none');
@@ -1185,8 +1307,8 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot IMU data (Accel, Gyro, Orient) as 3 stacked axes
         % ==============================================================
-        function plotIMUInSubplot(app, rows, cols, idx, spLabels, showGroups)
-            imu = app.LogData.zed_zed_node_imu_data;
+        function plotIMUInSubplot(app, logData, rows, cols, idx, spLabels, showGroups)
+            imu = logData.zed_zed_node_imu_data;
             t = imu.time;
 
             % Grab the subplot position, then replace with a panel
@@ -1211,33 +1333,39 @@ classdef DataVisualizer < handle
             if n == 0, return; end
 
             pan = uipanel(app.PlotFigure, 'Units', 'normalized', ...
-                'Position', pos, 'BorderType', 'none', 'BackgroundColor', 'w');
+                'Position', pos, 'BorderType', 'none', ...
+                'BackgroundColor', app.PlotFigure.Color);
 
             xyzColors = [0 0.447 0.741; 0.85 0.325 0.098; 0.466 0.674 0.188]; % blue, orange, green
 
             gap = 0.06;
-            axH = (1 - gap*(n+1)) / n;
+            topMargin = 0.06;
+            bottomMargin = 0.12;
+            axH = (1 - topMargin - bottomMargin - gap*(n-1)) / n;
 
             for i = 1:n
-                bottom = 1 - i*(axH + gap);
+                bottom = 1 - topMargin - i*axH - (i-1)*gap;
                 ax = axes(pan, 'Units', 'normalized', ...
-                    'Position', [0.12 bottom 0.82 axH]);
+                    'Position', [0.18 bottom 0.78 axH]);
                 hold(ax, 'on');
 
                 flds = groupFields{i};
+                allY = [];
                 for j = 1:numel(flds)
                     plot(ax, t, imu.(flds{j}), '-', ...
                         'Color', xyzColors(j,:), 'LineWidth', 1.2);
+                    allY = [allY; imu.(flds{j})(:)]; %#ok<AGROW>
                 end
                 hold(ax, 'off');
                 grid(ax, 'on');
+                padYAxis(ax, allY, 0.10);
                 legend(ax, {'X','Y','Z'}, 'Location', 'best', 'FontSize', 7);
 
                 if app.ShowLabels
                     if i <= numel(labelFields) && ~isempty(spLabels.(labelFields{i}))
-                        ylabel(ax, spLabels.(labelFields{i}), 'Interpreter', 'none');
+                        ylabel(ax, wrapYLabel(spLabels.(labelFields{i})), 'Interpreter', 'none');
                     else
-                        ylabel(ax, defaultLabels{i}, 'Interpreter', 'none');
+                        ylabel(ax, wrapYLabel(defaultLabels{i}), 'Interpreter', 'none');
                     end
                     if i == n
                         xlabel(ax, 'Time [s]', 'Interpreter', 'none');
@@ -1260,8 +1388,8 @@ classdef DataVisualizer < handle
         % ==============================================================
         % Plot corrected IMU data (Accel, Gyro, Orient) as 3 stacked axes
         % ==============================================================
-        function plotIMUTransformInSubplot(app, rows, cols, idx, spLabels, showGroups)
-            imu = app.LogData.imu_corrected;
+        function plotIMUTransformInSubplot(app, logData, rows, cols, idx, spLabels, showGroups)
+            imu = logData.imu_corrected;
             t = imu.time;
 
             % Retrieve rotation info for title annotation
@@ -1281,7 +1409,7 @@ classdef DataVisualizer < handle
                 {'accel_x','accel_y','accel_z'}, ...
                 {'gyro_x','gyro_y','gyro_z'}, ...
                 {'orient_x','orient_y','orient_z'}};
-            allDefaultLabels = {'Orient Correct Accel [m/s^2]', 'Orient Correct Gyro [rad/s]', 'Orientation [rad]'};
+            allDefaultLabels = {'OC Accel [m/s^2]', 'OC Gyro [rad/s]', 'Orientation [rad]'};
             allLabelFields = {'xLabel', 'yLabel', 'zLabel'};
 
             visIdx = find(showGroups);
@@ -1293,33 +1421,39 @@ classdef DataVisualizer < handle
             if n == 0, return; end
 
             pan = uipanel(app.PlotFigure, 'Units', 'normalized', ...
-                'Position', pos, 'BorderType', 'none', 'BackgroundColor', 'w');
+                'Position', pos, 'BorderType', 'none', ...
+                'BackgroundColor', app.PlotFigure.Color);
 
             xyzColors = [0 0.447 0.741; 0.85 0.325 0.098; 0.466 0.674 0.188];
 
             gap = 0.06;
-            axH = (1 - gap*(n+1)) / n;
+            topMargin = 0.06;
+            bottomMargin = 0.12;
+            axH = (1 - topMargin - bottomMargin - gap*(n-1)) / n;
 
             for i = 1:n
-                bottom = 1 - i*(axH + gap);
+                bottom = 1 - topMargin - i*axH - (i-1)*gap;
                 ax = axes(pan, 'Units', 'normalized', ...
-                    'Position', [0.12 bottom 0.82 axH]);
+                    'Position', [0.18 bottom 0.78 axH]);
                 hold(ax, 'on');
 
                 flds = groupFields{i};
+                allY = [];
                 for j = 1:numel(flds)
                     plot(ax, t, imu.(flds{j}), '-', ...
                         'Color', xyzColors(j,:), 'LineWidth', 1.2);
+                    allY = [allY; imu.(flds{j})(:)]; %#ok<AGROW>
                 end
                 hold(ax, 'off');
                 grid(ax, 'on');
+                padYAxis(ax, allY, 0.10);
                 legend(ax, {'X','Y','Z'}, 'Location', 'best', 'FontSize', 7);
 
                 if app.ShowLabels
                     if i <= numel(labelFields) && ~isempty(spLabels.(labelFields{i}))
-                        ylabel(ax, spLabels.(labelFields{i}), 'Interpreter', 'none');
+                        ylabel(ax, wrapYLabel(spLabels.(labelFields{i})), 'Interpreter', 'none');
                     else
-                        ylabel(ax, defaultLabels{i}, 'Interpreter', 'none');
+                        ylabel(ax, wrapYLabel(defaultLabels{i}), 'Interpreter', 'none');
                     end
                     if i == n
                         xlabel(ax, 'Time [s]', 'Interpreter', 'none');
@@ -1360,7 +1494,7 @@ classdef DataVisualizer < handle
             tUniform = linspace(t(1), t(end), N)';
             signal = interp1(t, signal, tUniform, 'linear');
 
-            signal = signal - mean(signal); % Remove DC
+            signal = detrend(signal); % Remove DC + linear trend
 
             % Full-length FFT for maximum frequency resolution
             Y = fft(signal);
@@ -1378,7 +1512,11 @@ classdef DataVisualizer < handle
                 'phase', angle(Y(1:floor(N/2)+1)), ...
                 'complexFFT', Y(1:floor(N/2)+1));
 
-            plot(ax, f, P1, '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.2);
+            % Exclude bins below 1 Hz so the DC/near-DC region
+            % doesn't dominate the y-axis scale
+            fMin = 1;  % Hz
+            plotIdx = f >= fMin;
+            plot(ax, f(plotIdx), P1(plotIdx), '-', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.2);
             grid(ax, 'on');
 
             if app.ShowLabels
@@ -1483,6 +1621,81 @@ classdef DataVisualizer < handle
         end
 
         % ==============================================================
+        % Plot signal with horizontal average line
+        % ==============================================================
+        function plotAverageInSubplot(app, ax, xTags, spLabels, speedUnit)
+            if isempty(xTags), return; end
+            sigTag = getTagStruct(xTags, 1);
+
+            [signal, t, sigName] = resolveSignal(app, sigTag);
+            if isempty(signal), return; end
+
+            avg = mean(signal, 'omitnan');
+
+            hold(ax, 'on');
+            h1 = plot(ax, t, signal, '-', 'LineWidth', 1);
+            h2 = yline(ax, avg, '--', 'Color', [0.85 0.325 0.098], 'LineWidth', 1.5);
+            grid(ax, 'on');
+            hold(ax, 'off');
+
+            % Build legend with unit if available
+            sigUnit = '';
+            if isfield(sigTag, 'topic') && isfield(sigTag, 'field')
+                sigUnit = lookupUnit(app, sigTag.topic, sigTag.field);
+            end
+            if ~isempty(sigUnit) && ~strcmp(sigUnit, '-') && app.ShowUnits
+                avgLabel = sprintf('Average = %.4g %s', avg, sigUnit);
+            else
+                avgLabel = sprintf('Average = %.4g', avg);
+            end
+
+            legend(ax, [h1, h2], ...
+                {sigName, avgLabel}, ...
+                'Interpreter', 'none', 'Location', 'best');
+
+            if app.ShowLabels
+                if ~isempty(spLabels.title)
+                    title(ax, spLabels.title, 'Interpreter', 'none');
+                end
+                if ~isempty(spLabels.xLabel)
+                    if app.ShowUnits
+                        xlabel(ax, spLabels.xLabel, 'Interpreter', 'none');
+                    else
+                        xlabel(ax, stripUnit(spLabels.xLabel), 'Interpreter', 'none');
+                    end
+                end
+                if ~isempty(spLabels.yLabel)
+                    if app.ShowUnits
+                        ylabel(ax, spLabels.yLabel, 'Interpreter', 'none');
+                    else
+                        ylabel(ax, stripUnit(spLabels.yLabel), 'Interpreter', 'none');
+                    end
+                end
+            end
+
+            % Add speed conversion right axis when Y data is in m/s
+            if strcmp(sigUnit, 'm/s') && ~strcmp(speedUnit, 'off')
+                convMap = struct( ...
+                    'mph',   struct('factor', 2.23694,   'label', '[mph]'), ...
+                    'kph',   struct('factor', 3.6,       'label', '[kph]'), ...
+                    'knots', struct('factor', 1.94384,   'label', '[knots]'), ...
+                    'mach',  struct('factor', 1/343,     'label', '[Mach]'), ...
+                    'ft_s',  struct('factor', 3.28084,   'label', '[ft/s]'), ...
+                    'cm_s',  struct('factor', 100,       'label', '[cm/s]'));
+                key = strrep(speedUnit, '/', '_');
+                if isfield(convMap, key)
+                    conv = convMap.(key);
+                    leftLims = ylim(ax);
+                    yyaxis(ax, 'right');
+                    ylim(ax, leftLims * conv.factor);
+                    ylabel(ax, conv.label, 'Interpreter', 'none');
+                    set(ax, 'YColor', [0.4 0.4 0.4]);
+                    yyaxis(ax, 'left');
+                end
+            end
+        end
+
+        % ==============================================================
         % Resolve signal from tag (normal field or transform output)
         % ==============================================================
         function [signal, t, sigName] = resolveSignal(app, sigTag)
@@ -1513,8 +1726,9 @@ classdef DataVisualizer < handle
                 end
             else
                 % Normal LogData field
-                if ~isfield(app.LogData, sigTag.topic), return; end
-                topicData = app.LogData.(sigTag.topic);
+                ld = getLogDataForCsv(app, sigTag);
+                if ~isfield(ld, sigTag.topic), return; end
+                topicData = ld.(sigTag.topic);
                 if ~isfield(topicData, sigTag.field), return; end
                 signal = topicData.(sigTag.field);
                 t = topicData.time;
@@ -1822,7 +2036,8 @@ classdef DataVisualizer < handle
                 app.HTMLComponent.Data = struct( ...
                     'type', 'fieldsUpdate', ...
                     'fields', {app.FieldList}, ...
-                    'layout', layout);
+                    'layout', layout, ...
+                    'csvNames', {app.CsvNames});
             end
         end
 
@@ -1887,7 +2102,10 @@ classdef DataVisualizer < handle
                 ...
                 '<h2>Getting Started</h2>' ...
                 '<ol>' ...
-                '<li>Click <code>Load CSV</code> to load a ROS2 log file.</li>' ...
+                '<li>Use the <code>Load</code> dropdown to import data:<ul>' ...
+                '<li><b>Load 1 CSV</b> &mdash; single ROS2 log file.</li>' ...
+                '<li><b>Load 2 CSV</b> &mdash; two log files for side-by-side comparison.</li>' ...
+                '</ul></li>' ...
                 '<li>Use the grid picker (top-left) to set subplot layout (e.g.&nbsp;2&times;2).</li>' ...
                 '<li>Drag field tags from the right panel into subplot drop zones.</li>' ...
                 '<li>Click <code>Plot</code> to generate the figure.</li>' ...
@@ -1897,18 +2115,21 @@ classdef DataVisualizer < handle
                 '<table>' ...
                 '<tr><td><span class="tag gray">Field [t]</span></td><td>Normal data fields &mdash; drag to X or Y zones</td></tr>' ...
                 '<tr><td><span class="tag green">Special</span></td><td>Special plot presets (GPS, Odom, IMU, Electrical)</td></tr>' ...
-                '<tr><td><span class="tag orange">Transform</span></td><td>Transforms (FFT, Filter, Bode, Estimate TF)</td></tr>' ...
+                '<tr><td><span class="tag orange">Transform</span></td><td>Transforms (FFT, Filter, Bode, Estimate TF, Average)</td></tr>' ...
                 '<tr><td><span class="tag purple">Output</span></td><td>Transform outputs &mdash; chain into other subplots</td></tr>' ...
                 '</table>' ...
                 '<ul>' ...
                 '<li>Click a dropped tag to toggle between X and Y role.</li>' ...
                 '<li>Click the &times; button on a tag to remove it.</li>' ...
+                '<li><b>Dual CSV mode:</b> two columns appear (one per file) with a shared transforms bar.</li>' ...
                 '</ul>' ...
                 ...
                 '<h2>Special Plots</h2>' ...
                 '<ul>' ...
                 '<li><b>GPS Plot</b> &mdash; satellite map colored by altitude.</li>' ...
                 '<li><b>Odometry Plot</b> &mdash; 2D robot path with heading arrows.</li>' ...
+                '<li><b>Odom + GPS</b> &mdash; odometry path rotated to align with GPS heading.</li>' ...
+                '<li><b>Cmd Vel</b> &mdash; drive commands (forward speed &amp; turn rate) with dual Y-axes.</li>' ...
                 '<li><b>IMU Plot</b> &mdash; 3 stacked axes (Accel, Gyro, Orient).</li>' ...
                 '<li><b>IMU Orient Correct</b> &mdash; auto-detects mounting angle from gravity, ' ...
                 'rotates accel/gyro/orient to robot frame (Z up). Shows detected pitch &amp; roll.</li>' ...
@@ -1926,6 +2147,7 @@ classdef DataVisualizer < handle
                 '<li><b>Estimate TF</b> &mdash; H1 estimator between Input (reference) and Output (response). ' ...
                 'Uses Welch&rsquo;s method with coherence masking (&gamma;&sup2;&nbsp;&gt;&nbsp;0.5). ' ...
                 'Best with broadband excitation (chirp, noise, step).</li>' ...
+                '<li><b>Average</b> &mdash; plots the signal with a dashed horizontal line at the mean value.</li>' ...
                 '</ul>' ...
                 ...
                 '<h2>Chaining Transforms</h2>' ...
@@ -2005,6 +2227,19 @@ function tf = hasSpecialTag(xTags, yTags, fieldName)
     end
 end
 
+function tag = findSpecialTag(xTags, yTags, fieldName)
+%FINDSPECIALTAG Return the tag struct matching fieldName, or [] if not found.
+    tag = [];
+    for i = 1:getTagCount(xTags)
+        t = getTagStruct(xTags, i);
+        if strcmp(t.field, fieldName), tag = t; return; end
+    end
+    for i = 1:getTagCount(yTags)
+        t = getTagStruct(yTags, i);
+        if strcmp(t.field, fieldName), tag = t; return; end
+    end
+end
+
 function name = prettyFieldName(field)
     parts = strsplit(field, '_');
     for i = 1:numel(parts)
@@ -2043,8 +2278,9 @@ function [f, cFFT] = resolveBodeInput(app, tag)
         [f, cFFT] = extractSpectralData(app.TransformOutputs.(key));
     else
         % Normal [t]-domain field — auto-FFT it
-        if ~isfield(app.LogData, tag.topic), return; end
-        topicData = app.LogData.(tag.topic);
+        ld = getLogDataForCsv(app, tag);
+        if ~isfield(ld, tag.topic), return; end
+        topicData = ld.(tag.topic);
         if ~isfield(topicData, tag.field), return; end
         signal = topicData.(tag.field);
         t = topicData.time;
@@ -2110,11 +2346,21 @@ function [signal, t] = resolveTimeDomain(app, tag)
         return;
     else
         % Normal LogData field
-        if ~isfield(app.LogData, tag.topic), return; end
-        topicData = app.LogData.(tag.topic);
+        ld = getLogDataForCsv(app, tag);
+        if ~isfield(ld, tag.topic), return; end
+        topicData = ld.(tag.topic);
         if ~isfield(topicData, tag.field), return; end
         signal = topicData.(tag.field)(:);
         t = topicData.time(:);
+    end
+end
+
+function ld = getLogDataForCsv(app, tag)
+%GETLOGDATAFORCSV Return the correct LogData struct based on tag csvIndex.
+    if isfield(tag, 'csvIndex') && ~isempty(tag.csvIndex) && tag.csvIndex == 2 && ~isempty(app.LogData2)
+        ld = app.LogData2;
+    else
+        ld = app.LogData;
     end
 end
 
@@ -2295,4 +2541,44 @@ function filtered = applyFilter(signal, filterType, Wn, WnHigh, fs)
         F = F .* mask;
         filtered = real(ifft(F));
     end
+end
+
+function lbl = wrapYLabel(str, maxChars)
+%WRAPYLABEL Split a long label string into a cell array for multi-line ylabel.
+    if nargin < 2, maxChars = 16; end
+    if numel(str) <= maxChars
+        lbl = str;
+        return;
+    end
+    words = strsplit(str);
+    lines = {''};
+    for k = 1:numel(words)
+        if isempty(lines{end})
+            candidate = words{k};
+        else
+            candidate = [lines{end} ' ' words{k}];
+        end
+        if numel(candidate) <= maxChars || isempty(lines{end})
+            lines{end} = candidate;
+        else
+            lines{end+1} = words{k}; %#ok<AGROW>
+        end
+    end
+    if numel(lines) == 1
+        lbl = lines{1};
+    else
+        lbl = lines;
+    end
+end
+
+function padYAxis(ax, yData, fraction)
+%PADYAXIS Add symmetric padding around data range on the Y axis.
+%   fraction is the fraction of the range to add (e.g. 0.10 = 10%).
+    yMin = min(yData, [], 'omitnan');
+    yMax = max(yData, [], 'omitnan');
+    if isempty(yMin) || isempty(yMax) || yMin == yMax
+        return;
+    end
+    pad = (yMax - yMin) * fraction;
+    ylim(ax, [yMin - pad, yMax + pad]);
 end

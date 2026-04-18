@@ -198,10 +198,46 @@ body {
     width: 260px;
     background: #fff;
     border-left: 1px solid #ddd;
-    padding: 10px;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+#field-panel.dual-csv {
+    width: 480px;
+    flex-direction: column;
+}
+.transforms-bar {
+    padding: 8px 10px;
+    border-bottom: 1px solid #ddd;
     flex-shrink: 0;
 }
+.columns-wrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+}
+.field-column {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    min-width: 0;
+}
+.field-column + .field-column {
+    border-left: 1px solid #ddd;
+}
+.field-column h3 {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #eee;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Legacy single-panel h3 — kept for compat */
 #field-panel h3 {
     font-size: 14px;
     color: #333;
@@ -497,15 +533,17 @@ body {
         </div>
     </div>
     <div id="subplot-panel">
-        <div id="no-data-msg">Load a CSV file to begin</div>
+        <div id="no-data-msg">Use Load to import CSV file(s)</div>
         <svg id="connection-lines"></svg>
     </div>
 </div>
 
 <div id="field-panel">
-    <h3>Available Fields</h3>
-    <div id="field-list">
-        <div style="color:#999; font-style:italic;">No data loaded</div>
+    <div class="field-column">
+        <h3>Available Fields</h3>
+        <div id="field-list">
+            <div style="color:#999; font-style:italic;">No data loaded</div>
+        </div>
     </div>
 </div>
 
@@ -518,6 +556,7 @@ body {
 var fields = [];
 var layout = [1, 1];
 var subplots = [];
+var csvNames = [];
 
 // Custom drag state
 var isDragging = false;
@@ -637,7 +676,7 @@ function isSpecialField(field) {
 }
 
 function isTransformField(field) {
-    return field === '__fft__' || field === '__filter__' || field === '__bode__' || field === '__bode_single__';
+    return field === '__fft__' || field === '__filter__' || field === '__bode__' || field === '__bode_single__' || field === '__average__';
 }
 
 function isOutputField(field) {
@@ -660,8 +699,8 @@ function getOutputDomain(subplotIndex) {
     if (transformType === 'fft' || transformType === 'bode_single') {
         // FFT and Bode flip domain
         return inputDomain === 't' ? 's' : 't';
-    } else if (transformType === 'filter') {
-        // Filter preserves domain
+    } else if (transformType === 'filter' || transformType === 'average') {
+        // Filter and Average preserve domain
         return inputDomain;
     }
     return inputDomain;
@@ -682,6 +721,7 @@ function getTransformType(index) {
         if (sp.yTags[i].field === '__filter__') return 'filter';
         if (sp.yTags[i].field === '__bode__') return 'bode';
         if (sp.yTags[i].field === '__bode_single__') return 'bode_single';
+        if (sp.yTags[i].field === '__average__') return 'average';
     }
     return null;
 }
@@ -726,6 +766,7 @@ function handleMatlabMessage(data) {
     if (!data || !data.type) return;
     if (data.type === 'fieldsUpdate') {
         fields = normalizeArray(data.fields);
+        csvNames = normalizeArray(data.csvNames);
         if (data.layout) layout = normalizeLayout(data.layout);
         updateLayoutButton();
         initSubplots();
@@ -762,6 +803,7 @@ function normalizeArray(val) {
 function sendAssignmentsToMatlab() {
     function mapTag(t) {
         var obj = {topic: t.topic, field: t.field, displayName: t.displayName || '', unit: t.unit || ''};
+        if (t.csvIndex !== undefined) obj.csvIndex = t.csvIndex;
         if (t.domain !== undefined) obj.domain = t.domain;
         if (t.sourceSubplot !== undefined) obj.sourceSubplot = t.sourceSubplot + 1; // 1-indexed for MATLAB
         if (t.sourceSignalTopic !== undefined) obj.sourceSignalTopic = t.sourceSignalTopic;
@@ -859,6 +901,10 @@ function autoFillLabels(index) {
             sp.title = sigName ? ('Bode Plot of ' + sigName) : 'Bode Plot';
             sp.xLabel = 'Frequency [Hz]';
             sp.yLabel = 'Magnitude [dB] / Phase [deg]';
+        } else if (transformType === 'average') {
+            sp.title = sigName ? ('Average: ' + sigName) : 'Average';
+            sp.xLabel = 'Time [s]';
+            sp.yLabel = sigName ? (sigName + ' [' + sigUnit + ']') : '';
         }
         return;
     }
@@ -985,17 +1031,88 @@ var sectionConfig = [
 ];
 
 function renderFieldPanel() {
-    var container = document.getElementById('field-list');
-    container.innerHTML = '';
+    var panel = document.getElementById('field-panel');
 
     if (fields.length === 0) {
-        container.innerHTML = '<div style="color:#999; font-style:italic;">No data loaded</div>';
+        panel.classList.remove('dual-csv');
+        panel.innerHTML = '<div class="field-column"><h3>Available Fields</h3>' +
+            '<div id="field-list"><div style="color:#999; font-style:italic;">No data loaded</div></div></div>';
         return;
     }
 
+    if (csvNames.length >= 2) {
+        // Dual CSV mode: shared transforms bar + two columns
+        panel.classList.add('dual-csv');
+        panel.innerHTML = '';
+
+        // Shared transforms bar spanning both columns
+        var transformFields = fields.filter(function(f) { return isTransformField(f.field); });
+        if (transformFields.length > 0) {
+            var tBar = document.createElement('div');
+            tBar.className = 'transforms-bar';
+            var tLabel = document.createElement('div');
+            tLabel.className = 'section-label';
+            tLabel.textContent = 'TRANSFORMATIONS';
+            tBar.appendChild(tLabel);
+            var tTags = document.createElement('div');
+            tTags.className = 'field-tags';
+            transformFields.forEach(function(f) { tTags.appendChild(createSourceTag(f)); });
+            tBar.appendChild(tTags);
+            panel.appendChild(tBar);
+        }
+
+        // Two-column wrapper
+        var wrapper = document.createElement('div');
+        wrapper.className = 'columns-wrapper';
+
+        var fields1 = fields.filter(function(f) { return f.csvIndex === 1; });
+        var fields2 = fields.filter(function(f) { return f.csvIndex === 2; });
+
+        var col1 = document.createElement('div');
+        col1.className = 'field-column';
+        var h1 = document.createElement('h3');
+        h1.textContent = csvNames[0] || 'CSV 1';
+        h1.title = csvNames[0] || 'CSV 1';
+        col1.appendChild(h1);
+        var list1 = document.createElement('div');
+        col1.appendChild(list1);
+        renderFieldsInContainer(list1, fields1);
+        wrapper.appendChild(col1);
+
+        var col2 = document.createElement('div');
+        col2.className = 'field-column';
+        var h2 = document.createElement('h3');
+        h2.textContent = csvNames[1] || 'CSV 2';
+        h2.title = csvNames[1] || 'CSV 2';
+        col2.appendChild(h2);
+        var list2 = document.createElement('div');
+        col2.appendChild(list2);
+        renderFieldsInContainer(list2, fields2);
+        wrapper.appendChild(col2);
+
+        panel.appendChild(wrapper);
+    } else {
+        // Single CSV mode
+        panel.classList.remove('dual-csv');
+        panel.innerHTML = '';
+
+        var col = document.createElement('div');
+        col.className = 'field-column';
+        var h = document.createElement('h3');
+        h.textContent = 'Available Fields';
+        col.appendChild(h);
+        var list = document.createElement('div');
+        list.id = 'field-list';
+        col.appendChild(list);
+        renderFieldsInContainer(list, fields);
+        panel.appendChild(col);
+    }
+}
+
+function renderFieldsInContainer(container, fieldSubset) {
     // Group fields by topic
     var topicFields = {};
-    fields.forEach(function(f) {
+    fieldSubset.forEach(function(f) {
         if (!topicFields[f.topic]) topicFields[f.topic] = [];
         topicFields[f.topic].push(f);
     });
@@ -1020,7 +1137,7 @@ function renderFieldPanel() {
     });
 
     // --- TRANSFORMATIONS section (orange bubbles, rendered first) ---
-    var transformFields = fields.filter(function(f) { return isTransformField(f.field); });
+    var transformFields = fieldSubset.filter(function(f) { return isTransformField(f.field); });
     var renderedCount = 0;
     if (transformFields.length > 0) {
         var label = document.createElement('div');
@@ -1105,7 +1222,6 @@ function renderFieldPanel() {
 
         renderedCount++;
     });
-
 }
 
 function createSourceTag(fieldInfo) {
@@ -1128,7 +1244,8 @@ function createSourceTag(fieldInfo) {
             topic: fieldInfo.topic,
             field: fieldInfo.field,
             displayName: fieldInfo.displayName,
-            unit: fieldInfo.unit || ''
+            unit: fieldInfo.unit || '',
+            csvIndex: fieldInfo.csvIndex
         }, 'tag');
     });
 
@@ -1144,7 +1261,7 @@ function renderSubplotPanel() {
 
     var count = layout[0] * layout[1];
     if (count === 0 || fields.length === 0) {
-        panel.innerHTML = '<div id="no-data-msg">Load a CSV file to begin</div>';
+        panel.innerHTML = '<div id="no-data-msg">Use Load to import CSV file(s)</div>';
         return;
     }
 
@@ -1811,6 +1928,7 @@ function createDroppedTag(tagInfo, subplotIndex, role, tagIndex) {
             field: tagInfo.field,
             displayName: tagInfo.displayName,
             unit: tagInfo.unit || '',
+            csvIndex: tagInfo.csvIndex,
             srcSubplot: subplotIndex,
             srcRole: role,
             srcIndex: tagIndex
@@ -1974,7 +2092,8 @@ function performDrop(target, info) {
         topic: info.topic,
         field: info.field,
         displayName: info.displayName,
-        unit: info.unit
+        unit: info.unit,
+        csvIndex: info.csvIndex
     };
 
     // Carry over output metadata if present
