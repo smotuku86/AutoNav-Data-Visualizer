@@ -19,8 +19,13 @@ function plotVelocities(odom_vel, imu_vel, enc_vel)
         h.imuY = plot(ax1, imu_vel.time, imu_vel.y, '--r', 'DisplayName','IMU Y');
     end
     if isfield(enc_vel,'left')
-        h.encLeft  = plot(ax1, enc_vel.time, enc_vel.left,  'g', 'DisplayName','Enc Left');
-        h.encRight = plot(ax1, enc_vel.time, enc_vel.right, 'm', 'DisplayName','Enc Right');
+        if isfield(enc_vel,'assumedEqual') && enc_vel.assumedEqual
+            suffix = ' (assumed equal)';
+        else
+            suffix = '';
+        end
+        h.encLeft  = plot(ax1, enc_vel.time, enc_vel.left,  'g', 'DisplayName',['Enc Left' suffix]);
+        h.encRight = plot(ax1, enc_vel.time, enc_vel.right, 'm', 'DisplayName',['Enc Right' suffix]);
     end
 
     grid on;
@@ -43,7 +48,12 @@ function plotVelocities(odom_vel, imu_vel, enc_vel)
     end
     if isfield(enc_vel,'left')
         enc_mag = sqrt(enc_vel.left.^2 + enc_vel.right.^2);
-        h.encMag = plot(ax2, enc_vel.time, enc_mag, ':k', 'DisplayName','Enc Mag');
+        if isfield(enc_vel,'assumedEqual') && enc_vel.assumedEqual
+            magLabel = 'Enc Mag (assumed equal)';
+        else
+            magLabel = 'Enc Mag';
+        end
+        h.encMag = plot(ax2, enc_vel.time, enc_mag, ':k', 'DisplayName', magLabel);
     end
 
     grid on;
